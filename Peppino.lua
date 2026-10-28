@@ -1,0 +1,1910 @@
+-- random man that felt like making peppino script: insaneclown7771
+
+-- ==========================================
+-- CRITICAL FIX: CLEANUP FOR RE-EXECUTION
+-- ==========================================
+pcall(function() game:GetService("RunService"):UnbindFromRenderStep("PeppinoForceSpeed") end)
+pcall(function() game:GetService("RunService"):UnbindFromRenderStep("PeppinoCamUpdate") end)
+
+pcall(function()
+    local CAS = game:GetService("ContextActionService")
+    CAS:UnbindAction("EmoteAction")
+    CAS:UnbindAction("SlamAction")
+    CAS:UnbindAction("DashAction")
+    CAS:UnbindAction("TauntAction")
+    CAS:UnbindAction("MachRunAction")
+end)
+
+pcall(function()
+    local playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        if playerGui:FindFirstChild("PeppinoHUD") then playerGui.PeppinoHUD:Destroy() end
+        if playerGui:FindFirstChild("PeppinoIntro") then playerGui.PeppinoIntro:Destroy() end
+    end
+    if workspace:FindFirstChild("PeppinoAfterimages") then
+        workspace.PeppinoAfterimages:Destroy()
+    end
+end)
+
+pcall(function()
+    if getgenv().PeppinoCharConn then getgenv().PeppinoCharConn:Disconnect() end
+    if getgenv().PeppinoSteppedConn then getgenv().PeppinoSteppedConn:Disconnect() end
+    if getgenv().PeppinoHeartbeatConn1 then getgenv().PeppinoHeartbeatConn1:Disconnect() end
+    if getgenv().PeppinoHeartbeatConn2 then getgenv().PeppinoHeartbeatConn2:Disconnect() end
+    if getgenv().PeppinoRenderSteppedConn1 then getgenv().PeppinoRenderSteppedConn1:Disconnect() end
+    if getgenv().PeppinoRenderSteppedConn2 then getgenv().PeppinoRenderSteppedConn2:Disconnect() end
+    if getgenv().PeppinoRenderSteppedConn3 then getgenv().PeppinoRenderSteppedConn3:Disconnect() end
+    if getgenv().PeppinoIntroSound then getgenv().PeppinoIntroSound:Destroy() end
+    
+    for _, obj in pairs(game:GetService("SoundService"):GetChildren()) do
+        if obj:IsA("Sound") and obj.Name:match("Peppino") then obj:Destroy() end
+    end
+end)
+
+task.spawn(function()
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local InsertService = game:GetService("InsertService")
+    local ContextActionService = game:GetService("ContextActionService")
+    local UserInputService = game:GetService("UserInputService")
+    local TweenService = game:GetService("TweenService")
+    local PhysicsService = game:GetService("PhysicsService")
+
+    local Player = Players.LocalPlayer
+    local ANIMATOR_URL = "https://raw.githubusercontent.com/gObl00x/Stuff/refs/heads/main/Animator6D.lua"
+
+    -- Configs
+    local RUN_KEY = Enum.KeyCode.LeftShift
+    local RUN1_LENGTH, RUN2_LENGTH, RUN3_LENGTH = 0.33, 0.67, 1.33
+    local WALK_SPEED = 8.5
+    local EMOTE_WALK_SPEED = 4.0
+    local RUN1_SPEED, RUN2_SPEED, RUN3_SPEED, RUN4_SPEED = 35, 55, 85, 115
+    local ROLL_SPEED, SLIDE_SPEED = 120, 100
+    local FALL_MOVE_SPEED, AIR_RUN_SPEED = 8.5, 5.0
+    local CRAWL_SPEED, CLIMB_SPEED = 6.0, 35.0
+
+    local TURN_DOT_THRESHOLD = -0.3
+
+    local TAP_THRESHOLD = 0.20
+    local LAUNCH_SPEED = 100
+    local LAUNCH_DURATION = 0.67
+    local SUPERJUMP_ANIM_SPEED = 2.50
+    local CHARGE_ANIM_SPEED = 1.00
+    local CHARGE_SPEED = 4.0
+    local PEAK_THRESHOLD = 5
+
+    local DASH_KEY = Enum.KeyCode.Q
+    local DASH_SPEED = 110
+    local DASH_DURATION = 0.30
+    local DASH_JUMP_FORWARD, DASH_JUMP_UP = 80, 60
+    local DASH_ANIM_SPEED = 0.65
+    local DASH_JUMP_GRACE = 0.15
+    local MIDAIR_DASH_SPEED = 95
+    local MIDAIR_DASH_MAX = 0.25
+
+    local BELLYSLIDE_FAST_SPEED = 116
+    local BELLYSLIDE_FAST_DURATION = 1.0
+    local BELLYSLIDE_TOTAL_DURATION = 1.5
+    local BELLYSLIDE_END_SPEED = 60
+
+    local BASH_SPEED = 95
+    local BASH_STARTUP_TIME = 0.20
+
+    local TAUNT_KEY, EMOTE_KEY = Enum.KeyCode.T, Enum.KeyCode.E
+
+    local SLAM_KEY = Enum.KeyCode.F
+    local SLAM_FREEZE_DURATION = 0.33
+    local SLAM_FALL_SPEED = -60
+    local SLAM_HEAVY_PUSH = 250
+    local SLAM_WEIGHT_RAMP = 0.4
+    local SLAM_MAX_FALL_SPEED = 400
+    local CRAWL_HOLD_TIME = 0.30
+
+    -- Roll & Slide & Skid tuning
+    local ROLL_MIN_SPEED = 60
+    local ROLL_MAX_SPEED = 126
+    local MACHROLL_DURATION = 4.0
+    local SLIDE_FIXED_SPEED = 117
+    local SLIDE_DURATION = 2.0
+    local CANCEL_ANIM_SPEED = 0.40
+    -- SHORTER + SLOWER skid: drops to nearly-walk speed, much quicker
+    local SKID_TARGET_SPEED = 20
+    local SKID_HESITATION = 0.08
+    local SKID_AFTERIMAGE_THROTTLE = 0.04
+    local ROLL_SLIDE_GRACE = 0.5
+
+    local RUN_BUTTON_POS = UDim2.new(1, -160, 1, -70)
+    local DASH_BUTTON_POS = UDim2.new(1, -90, 1, -160)
+    local TAUNT_BUTTON_POS = UDim2.new(1, -200, 1, -90)
+    local SLAM_BUTTON_POS = UDim2.new(1, -150, 1, -130)
+    local EMOTE_BUTTON_POS = UDim2.new(1, -250, 1, -130)
+
+    local AFTERIMAGE_COLORS = {Color3.fromRGB(206, 43, 55), Color3.fromRGB(0, 146, 70)}
+
+    -- Paths
+    local GITHUB_REPO_API = "https://api.github.com/repos/zaeden059-stack/Peppino-stuff/git/trees/main?recursive=1"
+    local GITHUB_RAW_BASE = "https://raw.githubusercontent.com/zaeden059-stack/Peppino-stuff/main/"
+    local MAIN_FOLDER = "Peppino_files"
+    local MP3_FOLDER = MAIN_FOLDER .. "/Peppino_mp3s"
+    local RBXM_FOLDER = MAIN_FOLDER .. "/Peppino_rbxms"
+    local HUD_FOLDER = MAIN_FOLDER .. "/Peppino_hud"
+
+    local function downloadAssets()
+        pcall(function()
+            if not isfolder(MAIN_FOLDER) then makefolder(MAIN_FOLDER) end
+            if not isfolder(MP3_FOLDER) then makefolder(MP3_FOLDER) end
+            if not isfolder(RBXM_FOLDER) then makefolder(RBXM_FOLDER) end
+            if not isfolder(HUD_FOLDER) then makefolder(HUD_FOLDER) end
+        end)
+
+        local success, response = pcall(function() return game:HttpGet(GITHUB_REPO_API) end)
+        if not success or not response then return false, false end
+
+        local decodeSuccess, data = pcall(function() return game:GetService("HttpService"):JSONDecode(response) end)
+        if not decodeSuccess or not data or not data.tree then return false, false end
+
+        local expectedCount, downloadedCount, downloadedAny = 0, 0, false
+
+        for _, item in ipairs(data.tree) do
+            if item.type == "blob" then
+                local fileName = item.path
+                local targetFolder = nil
+                
+                if fileName:lower():match("%.mp3$") then targetFolder = MP3_FOLDER
+                elseif fileName:lower():match("%.rbxm$") then targetFolder = RBXM_FOLDER
+                elseif fileName:lower():match("%.png$") then targetFolder = HUD_FOLDER end
+
+                if targetFolder then
+                    expectedCount = expectedCount + 1
+                    local filePath = targetFolder .. "/" .. fileName
+                    
+                    if not isfile(filePath) then
+                        local fileSuccess, content = pcall(function() return game:HttpGet(GITHUB_RAW_BASE .. fileName) end)
+                        if fileSuccess and content then
+                            local writeSuccess = pcall(function() writefile(filePath, content) end)
+                            if writeSuccess then
+                                downloadedAny = true
+                                downloadedCount = downloadedCount + 1
+                            end
+                        end
+                        task.wait(0.1)
+                    else
+                        downloadedCount = downloadedCount + 1
+                    end
+                end
+            end
+        end
+        return (downloadedCount == expectedCount and expectedCount > 0), downloadedAny
+    end
+
+    warn("[Peppino] Downloading assets...")
+    local downloadSuccess = false
+    for i = 1, 60 do
+        local success, allExist = pcall(downloadAssets)
+        if success and allExist then
+            downloadSuccess = true
+            break
+        end
+        task.wait(1)
+    end
+
+    -- UI / HUD
+    local hudPath = HUD_FOLDER .. "/Tv_hud"
+    local hudPathPng = HUD_FOLDER .. "/Tv_hud.png"
+    local hudPathPngUpper = HUD_FOLDER .. "/Tv_hud.PNG"
+    local introRedPath = HUD_FOLDER .. "/Itspizzatimered.PNG"
+    local introWhitePath = HUD_FOLDER .. "/Itspizzatimewhite.PNG"
+    local introSoundPath = MP3_FOLDER .. "/Itspizzatime.mp3"
+
+    task.spawn(function()
+        local playerGui = Player:WaitForChild("PlayerGui", 10)
+        if not playerGui then return end
+        
+        local screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "PeppinoHUD"
+        screenGui.ResetOnSpawn = false
+        screenGui.IgnoreGuiInset = true 
+        screenGui.Parent = playerGui
+
+        local imageLabel = Instance.new("ImageLabel")
+        imageLabel.Name = "TvHud"
+        imageLabel.Size = UDim2.new(0, 120, 0, 120)
+        imageLabel.Position = UDim2.new(1, -130, 0, 10)
+        imageLabel.BackgroundTransparency = 1
+        imageLabel.ScaleType = Enum.ScaleType.Fit
+        imageLabel.Parent = screenGui
+
+        local finalPath = nil
+        local retries = 0
+        while not finalPath and retries < 10 do
+            if isfile(hudPath) then finalPath = hudPath
+            elseif isfile(hudPathPng) then finalPath = hudPathPng
+            elseif isfile(hudPathPngUpper) then finalPath = hudPathPngUpper
+            else task.wait(1); retries = retries + 1 end
+        end
+
+        if finalPath then
+            local success, assetId = pcall(getcustomasset, finalPath)
+            if success and assetId and assetId ~= "" then imageLabel.Image = assetId end
+        else
+            screenGui:Destroy()
+        end
+
+        local introGui = Instance.new("ScreenGui")
+        introGui.Name = "PeppinoIntro"
+        introGui.ResetOnSpawn = false
+        introGui.IgnoreGuiInset = true
+        introGui.Parent = playerGui
+
+        local startPos = UDim2.new(0.5, -150, 1.5, 0)
+        local endPos = UDim2.new(0.5, -150, -0.5, 0)
+
+        local introRed = Instance.new("ImageLabel")
+        introRed.Size = UDim2.new(0, 300, 0, 300)
+        introRed.Position = startPos
+        introRed.BackgroundTransparency = 1
+        introRed.ScaleType = Enum.ScaleType.Fit
+        introRed.Visible = false
+        introRed.Parent = introGui
+
+        local introWhite = Instance.new("ImageLabel")
+        introWhite.Size = UDim2.new(0, 300, 0, 300)
+        introWhite.Position = startPos
+        introWhite.BackgroundTransparency = 1
+        introWhite.ScaleType = Enum.ScaleType.Fit
+        introWhite.Visible = false
+        introWhite.Parent = introGui
+
+        if isfile(introRedPath) then
+            local ok, asset = pcall(getcustomasset, introRedPath)
+            if ok and asset then introRed.Image = asset end
+        end
+        if isfile(introWhitePath) then
+            local ok, asset = pcall(getcustomasset, introWhitePath)
+            if ok and asset then introWhite.Image = asset end
+        end
+
+        task.spawn(function()
+            if isfile(introSoundPath) then
+                local sound = Instance.new("Sound")
+                local sOk, sAsset = pcall(getcustomasset, introSoundPath)
+                if sOk and sAsset then
+                    sound.SoundId = sAsset
+                    sound.Volume = 2
+                    sound.Parent = game:GetService("SoundService")
+                    getgenv().PeppinoIntroSound = sound
+                    sound:Play()
+                    task.wait(3)
+                    TweenService:Create(sound, TweenInfo.new(3, Enum.EasingStyle.Linear), {Volume = 0}):Play()
+                    task.wait(3)
+                    sound:Destroy()
+                    getgenv().PeppinoIntroSound = nil
+                end
+            end
+        end)
+
+        task.spawn(function()
+            task.wait(0.2)
+            TweenService:Create(introRed, TweenInfo.new(2, Enum.EasingStyle.Linear), {Position = endPos}):Play()
+            TweenService:Create(introWhite, TweenInfo.new(2, Enum.EasingStyle.Linear), {Position = endPos}):Play()
+
+            local flashEnd = tick() + 2
+            local showWhite = true
+            while tick() < flashEnd do
+                introWhite.Visible = showWhite
+                introRed.Visible = not showWhite
+                showWhite = not showWhite
+                task.wait(0.05)
+            end
+            if introGui and introGui.Parent then introGui:Destroy() end
+        end)
+    end)
+
+    -- Chat
+    local function sendChatMessage(msg)
+        pcall(function()
+            local TextChatService = game:GetService("TextChatService")
+            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+                local channels = TextChatService:FindFirstChild("TextChannels")
+                if channels then
+                    local general = channels:FindFirstChild("RBXGeneral") or channels:FindFirstChild("All")
+                    if general then general:SendAsync(msg) end
+                end
+            end
+        end)
+        pcall(function()
+            local defaultChat = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+            if defaultChat then
+                local sayMessage = defaultChat:FindFirstChild("SayMessageRequest")
+                if sayMessage then sayMessage:FireServer(msg, "All") end
+            end
+        end)
+    end
+
+    task.spawn(function()
+        task.wait(1)
+        sendChatMessage("Peppino from pizza tower")
+        task.wait(1)
+        sendChatMessage("By insaneclown")
+        task.wait(1)
+        sendChatMessage("⚠️animations are not mine⚠️")
+        task.wait(1)
+        sendChatMessage("⚠️this script is client sided⚠️")
+    end)
+
+    -- Collisions
+    local EMOTE_COLLISION_GROUP = "EmoteCollision"
+    local PLAYER_COLLISION_GROUP = "PlayerCollision"
+    pcall(function() PhysicsService:RegisterCollisionGroup(EMOTE_COLLISION_GROUP) end)
+    pcall(function() PhysicsService:RegisterCollisionGroup(PLAYER_COLLISION_GROUP) end)
+    pcall(function()
+        PhysicsService:CollisionGroupSetCollidable(EMOTE_COLLISION_GROUP, PLAYER_COLLISION_GROUP, false)
+        PhysicsService:CollisionGroupSetCollidable(EMOTE_COLLISION_GROUP, "Default", true)
+        PhysicsService:CollisionGroupSetCollidable(PLAYER_COLLISION_GROUP, EMOTE_COLLISION_GROUP, false)
+        PhysicsService:CollisionGroupSetCollidable(PLAYER_COLLISION_GROUP, PLAYER_COLLISION_GROUP, false)
+    end)
+
+    local function applyPlayerCollisionGroup(char)
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                pcall(function() part.CollisionGroup = PLAYER_COLLISION_GROUP end)
+            end
+        end
+    end
+
+    -- Sounds
+    local IDLE_SOUND_IDS = { "rbxassetid://117199255026221", "rbxassetid://138300570154752", "rbxassetid://132702328652232", "rbxassetid://98339557709872" }
+    local HURT_SOUND_IDS = { "rbxassetid://98339557709872", "rbxassetid://95921807570397" }
+    local DEATH_SOUND_IDS = { "rbxassetid://71335937838922", "rbxassetid://94053454662512" }
+
+    local function loadCustomSound(fileName, fallbackId)
+        local filePath = MP3_FOLDER .. "/" .. fileName
+        if isfile(filePath) then
+            local ok, id = pcall(function() return getcustomasset(filePath) end)
+            if ok and id then return id end
+        end
+        return fallbackId
+    end
+
+    local SOUND_IDS = {
+        MACH12 = "rbxassetid://127094099654213", MACH3 = "rbxassetid://99824108518179", MACH4 = "rbxassetid://124709243157401",
+        RUNCANCEL = "rbxassetid://135996785402872", TAUNT = "rbxassetid://97385070282211", WALK = "rbxassetid://139255711045292",
+        JUMP_PREP = loadCustomSound("Superjumpprep.mp3", "rbxassetid://14143525942"), JUMP_CHARGE = loadCustomSound("Superjumpcharge.mp3", "rbxassetid://14143527825"),
+        JUMP_LAUNCH = loadCustomSound("Superjump.mp3", "rbxassetid://14143535692"), JUMP_CANCEL = loadCustomSound("Bash.mp3", "rbxassetid://14143529511"),
+        SLAMHIT = "rbxassetid://135267783785855", JUMP = "rbxassetid://123982194925682", DASH = loadCustomSound("Dash.mp3", "rbxassetid://14143767570"),
+        IMPACT = loadCustomSound("Splat.mp3", "rbxassetid://14143812214"), SPLAT = loadCustomSound("Splat.mp3", "rbxassetid://14143812214"),
+        EMOTE_STARTUP = loadCustomSound("Boomboxstartup.mp3", "rbxassetid://0"), EMOTE_LOOP = loadCustomSound("Boomboxsong.mp3", "rbxassetid://0"),
+    }
+
+    local sounds = {}
+    for name, id in pairs(SOUND_IDS) do
+        local s = Instance.new("Sound")
+        s.Name = "Peppino_" .. name
+        s.SoundId = id
+        s.Volume = 1.5 
+        s.Looped = (name == "MACH12" or name == "MACH3" or name == "MACH4" or name == "WALK" or name == "JUMP_CHARGE" or name == "EMOTE_LOOP")
+        sounds[name] = s
+    end
+
+    local idleSounds, hurtSounds, deathSounds = {}, {}, {}
+    for i, id in ipairs(IDLE_SOUND_IDS) do
+        local s = Instance.new("Sound"); s.Name = "Peppino_Idle_" .. i; s.SoundId = id; s.Volume = 1.5; table.insert(idleSounds, s)
+    end
+    for i, id in ipairs(HURT_SOUND_IDS) do
+        local s = Instance.new("Sound"); s.Name = "Peppino_Hurt_" .. i; s.SoundId = id; s.Volume = 1.5; table.insert(hurtSounds, s)
+    end
+    for i, id in ipairs(DEATH_SOUND_IDS) do
+        local s = Instance.new("Sound"); s.Name = "Peppino_Death_" .. i; s.SoundId = id; s.Volume = 2.0; table.insert(deathSounds, s)
+    end
+
+    local function anyHurtPlaying()
+        for _, s in ipairs(hurtSounds) do
+            if s.IsPlaying then return true end
+        end
+        return false
+    end
+
+    -- Animator
+    local function loadAnimator6D()
+        if getgenv().Animator6DLoadedPro then return true end
+        local ok = pcall(function() loadstring(game:HttpGet(ANIMATOR_URL))() end)
+        if not ok then return false end
+        local start = tick()
+        while not getgenv().Animator6DLoadedPro and (tick() - start) < 5 do task.wait(0.05) end
+        return getgenv().Animator6DLoadedPro == true
+    end
+    pcall(loadAnimator6D)
+
+    -- Files
+    local Files = {
+        Idle = "pepstand_13508570864.rbxm", Walk = "walk_13509681393.rbxm", Jump = "jump_13508803614.rbxm", Fall = "fall_13508769352.rbxm", 
+        Run1 = "run1better_13452859838.rbxm", Run2 = "run2_13452952766.rbxm", Run3 = "run3_13461833248.rbxm", RunCancel = "runcancel_13556714934.rbxm", 
+        Startup = "startup_13452728361.rbxm", SuperJumpStart = "superjumpstart_13625339286.rbxm", SuperJump = "superjump_13625539584.rbxm", 
+        Lunge = "lunge_13498808631.rbxm", DashJump = "dashjump_18502525515.rbxm", DashJumpLoop = "dashjumploop_18502530619.rbxm", MidAirDash = "midairdash_18318678025.rbxm", 
+        AirRun = "airrun_17769218536.rbxm", SlamStart = "slamstart_13469533361.rbxm", SlamFall = "Slamfall_13470013440.rbxm", HitGround = "hitground_13499811509.rbxm", 
+        Climb = "climb_13461552987.rbxm", CrawlIdle = "crawlidle_117526746436764.rbxm", CrawlWalk = "crawlloop_75813072735423.rbxm", Roll = "roll_76021758642961.rbxm", 
+        Dive = "dive_14448469976.rbxm", Slide = "slide_137457303850283.rbxm", Splat = "splat_14240345687.rbxm", WallJump = "walljump_17768925716.rbxm", 
+        Ceiling = "ceiling_14251221953.rbxm", BashStart = "bashstart_13629647668.rbxm", BashLoop = "bash_13629645799.rbxm", Breakdance = "breakdance_105323330679982.rbxm",
+        BellySlide = "bellyslide_109321721558788.rbxm",
+        Taunt1 = "taunt1_13519803945.rbxm", Taunt2 = "taunt2_13508194993.rbxm", Taunt3 = "taunt3_13508198422.rbxm", Taunt4 = "taunt4_13508207035.rbxm", 
+        Taunt5 = "taunt5_13508210305.rbxm", Taunt6 = "taunt6_13508214231.rbxm", Taunt7 = "taunt7_13508218740.rbxm", Taunt8 = "taunt8_13508223549.rbxm", 
+        Taunt9 = "taunt9_13520015947.rbxm", Taunt10 = "taunt10_13520013584.rbxm",
+    }
+
+    local function loadKFS(fileName)
+        local filePath = RBXM_FOLDER .. "/" .. fileName
+        if not isfile(filePath) then return nil end
+        local ok, asset = pcall(function() return getcustomasset(filePath) end)
+        if not ok or not asset then return nil end
+        local model = nil
+        local ok2, objs = pcall(game.GetObjects, game, asset)
+        if ok2 and objs and objs[1] then model = objs[1] else
+            local ok3, r = pcall(function() return InsertService:LoadLocalAsset(asset) end)
+            if ok3 then model = r end
+        end
+        if not model then return nil end
+        local kfs = nil
+        local function scan(o)
+            if kfs then return end
+            if o:IsA("KeyframeSequence") then kfs = o return end
+            for _, c in ipairs(o:GetChildren()) do scan(c); if kfs then return end end
+        end
+        pcall(function() scan(model) end)
+        return kfs
+    end
+
+    local Anim = {}
+    local TauntAnims = {}
+    local JumpLength, DashJumpLength, HitGroundLength, BashStartLength, SplatLength, WallJumpLength, CeilingLength, StartupLength = 0.5, 0.5, 0.5, 0.42, 0.5, 0.5, 1.0, 0.4
+    local loadedAnimations = false
+
+    local function prepareSlamKFS(kfs, label, shouldLoop)
+        if not kfs then return nil end
+        local ok, clone = pcall(function() return kfs:Clone() end)
+        if not ok or not clone then return kfs end
+        clone.Name = label .. "_" .. tostring(math.random(10000, 99999))
+        clone.Loop = shouldLoop
+        clone.Priority = Enum.AnimationPriority.Action4
+        return clone
+    end
+
+    local function getAnimLength(kfs)
+        local len = 0
+        for _, kf in ipairs(kfs:GetKeyframes()) do if kf.Time > len then len = kf.Time end end
+        return len
+    end
+
+    local function loadAllAnimations()
+        if loadedAnimations then return end
+        local success, err = pcall(function()
+            for animName, fileName in pairs(Files) do Anim[animName] = loadKFS(fileName) end
+            if not Anim.Idle then return end
+            loadedAnimations = true
+            
+            Anim.SlamStart = prepareSlamKFS(Anim.SlamStart, "SlamStart", false)
+            Anim.SlamFall  = prepareSlamKFS(Anim.SlamFall, "SlamFall", true)
+            Anim.HitGround = prepareSlamKFS(Anim.HitGround, "HitGround", false)
+            Anim.Startup   = prepareSlamKFS(Anim.Startup, "Startup", false)
+            Anim.Climb     = prepareSlamKFS(Anim.Climb, "Climb", true)
+            Anim.CrawlIdle = prepareSlamKFS(Anim.CrawlIdle, "CrawlIdle", true)
+            Anim.CrawlWalk = prepareSlamKFS(Anim.CrawlWalk, "CrawlWalk", true)
+            Anim.Roll      = prepareSlamKFS(Anim.Roll, "Roll", true)
+            Anim.Dive      = prepareSlamKFS(Anim.Dive, "Dive", true)
+            Anim.Slide     = prepareSlamKFS(Anim.Slide, "Slide", true)
+            Anim.BashStart = prepareSlamKFS(Anim.BashStart, "BashStart", false)
+            Anim.BashLoop  = prepareSlamKFS(Anim.BashLoop, "BashLoop", true)
+            Anim.Splat     = prepareSlamKFS(Anim.Splat, "Splat", false)
+            Anim.WallJump  = prepareSlamKFS(Anim.WallJump, "WallJump", false)
+            Anim.Ceiling   = prepareSlamKFS(Anim.Ceiling, "Ceiling", false)
+            Anim.Breakdance = prepareSlamKFS(Anim.Breakdance, "Breakdance", true)
+            Anim.BellySlide = prepareSlamKFS(Anim.BellySlide, "BellySlide", true)
+
+            TauntAnims = {}
+            for i = 1, 10 do if Anim["Taunt" .. i] then table.insert(TauntAnims, Anim["Taunt" .. i]) end end
+            
+            JumpLength = Anim.Jump and getAnimLength(Anim.Jump) or 0.5
+            DashJumpLength = Anim.DashJump and getAnimLength(Anim.DashJump) or 0.5
+            HitGroundLength = Anim.HitGround and getAnimLength(Anim.HitGround) or 0.5
+            BashStartLength = Anim.BashStart and getAnimLength(Anim.BashStart) or 0.42
+            SplatLength = Anim.Splat and getAnimLength(Anim.Splat) or 0.5
+            WallJumpLength = Anim.WallJump and getAnimLength(Anim.WallJump) or 0.5
+            CeilingLength = Anim.Ceiling and getAnimLength(Anim.Ceiling) or 1.0
+            StartupLength = Anim.Startup and getAnimLength(Anim.Startup) or 0.4
+        end)
+        if not success then warn("[Peppino] Some animations failed to load: " .. tostring(err)) end
+    end
+
+    loadAllAnimations()
+
+    -- Afterimages
+    local AFTERIMAGE_FOLDER = workspace:FindFirstChild("PeppinoAfterimages")
+    if not AFTERIMAGE_FOLDER then
+        AFTERIMAGE_FOLDER = Instance.new("Folder"); AFTERIMAGE_FOLDER.Name = "PeppinoAfterimages"; AFTERIMAGE_FOLDER.Parent = workspace
+    end
+    local COLLISION_GROUP_NAME = "PeppinoAfterimage"
+    pcall(function() PhysicsService:RegisterCollisionGroup(COLLISION_GROUP_NAME) end)
+    pcall(function()
+        PhysicsService:CollisionGroupSetCollidable(COLLISION_GROUP_NAME, "Default", false)
+        PhysicsService:CollisionGroupSetCollidable(COLLISION_GROUP_NAME, COLLISION_GROUP_NAME, false)
+    end)
+
+    local function shouldStrip(child)
+        return child:IsA("TouchTransmitter") or child:IsA("Decal") or child:IsA("Texture") or child:IsA("SurfaceAppearance") or child:IsA("Shirt") or child:IsA("Pants") or child:IsA("ShirtGraphic") or child:IsA("Script") or child:IsA("LocalScript") or child:IsA("ModuleScript") or child:IsA("Weld") or child:IsA("WeldConstraint") or child:IsA("Motor6D") or child:IsA("Motor") or child:IsA("Attachment") or child:IsA("Constraint")
+    end
+
+    local function createAfterimage(char, color)
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        local ghost = Instance.new("Model"); ghost.Name = "PeppinoAfterimage"
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Name ~= "PeppinoHitbox" then
+                local ok, clone = pcall(function() return part:Clone() end)
+                if ok and clone then
+                    for _, child in ipairs(clone:GetChildren()) do if shouldStrip(child) then child:Destroy() end end
+                    for _, d in ipairs(clone:GetDescendants()) do if shouldStrip(d) then pcall(function() d:Destroy() end) end end
+                    if clone:IsA("MeshPart") then pcall(function() clone.TextureID = ""; clone.VertexColor = Vector3.new(1, 1, 1) end) end
+                    for _, d in ipairs(clone:GetDescendants()) do
+                        if d:IsA("SpecialMesh") then pcall(function() d.TextureId = ""; d.VertexColor = Vector3.new(1, 1, 1) end)
+                        elseif d:IsA("Mesh") then pcall(function() d.VertexColor = Vector3.new(1, 1, 1) end) end
+                    end
+                    clone.Anchored = true; clone.CanCollide = false; clone.CanTouch = false; clone.CanQuery = false; clone.Massless = true
+                    clone.Color = color; clone.Material = Enum.Material.SmoothPlastic; clone.Transparency = 0.0; clone.CFrame = part.CFrame
+                    pcall(function() clone.CollisionGroup = COLLISION_GROUP_NAME end)
+                    clone.Parent = ghost
+                    TweenService:Create(clone, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 1}):Play()
+                end
+            end
+        end
+        ghost.Parent = AFTERIMAGE_FOLDER
+        task.delay(0.5, function() if ghost and ghost.Parent then ghost:Destroy() end end)
+    end
+
+    local afterimageCounter, lastAfterimageTime = 0, 0
+    local function maybeSpawnAfterimage(char, phase, throttle)
+        if phase < 3 then return end
+        local now = tick()
+        local minGap = throttle or 0.05
+        if now - lastAfterimageTime < minGap then return end
+        lastAfterimageTime = now
+        local idx = math.floor(afterimageCounter / 2) % #AFTERIMAGE_COLORS + 1
+        createAfterimage(char, AFTERIMAGE_COLORS[idx])
+        afterimageCounter = afterimageCounter + 1
+    end
+    local function resetAfterimageState() afterimageCounter = 0; lastAfterimageTime = 0 end
+
+    -- States
+    local desiredState, currentAnim, lastAppliedId, idCounter = nil, nil, 0, 0
+    local jumpStarted, jumpLockedUntil = false, 0
+    local boundChar, respawnProcessing, bindingGen, firstBindDone = nil, false, 0, false
+    local running, runStarting, runStartupTime, runStartTime, lastRunPhase = false, false, 0, 0, 0
+    local tauntOverride, tauntEndTime = false, 0
+    local tauntSavedRunElapsed, tauntSavedDashElapsed = nil, nil
+    local emoteOverride, emoteEndTime = false, 0
+    local splatOverride, splatActive, splatEndTime = false, false, 0
+    local wallJumpOverride, wallClimbCooldown, ceilingHitActive, ceilingHitStartTime = false, 0, false, 0
+    local cancelActive, cancelStartTime, cancelStartSpeed, cancelPhaseAtStart, cancelDir = false, 0, 0, 0, Vector3.zero
+    local lastMoveDir, mach2StartDir = Vector3.zero, nil
+    local pressStartTime, superjumpCharging, superJumpPlaying, superjumpFalling = 0, false, false, false
+    local dashActive, dashStartTime, dashDir, dashIsMidAir, dashJumping, dashJumpStartTime = false, 0, Vector3.zero, false, false, 0
+    local slideComboReady, slideComboTime = false, 0
+    local bellySliding, bellySlideStartTime, bellySlideDir = false, 0, Vector3.zero
+    local airRunActive, slamming, slamFreezeActive, slamStartTime, slamFallStartTime, slamLandingActive, slamLandingStartTime = false, false, false, 0, 0, false, 0
+    local crawling, wallClimbActive, wallClimbPulledUp, wallClimbStartTime, slamHold, slamPressTime = false, false, false, 0, false, 0
+    local machRolling, machSliding, machRollSpeed, machRollDir = false, false, 0, Vector3.zero
+    local machRollEndTime, machRollResumePhase = 0, 2
+    local machRollStartTime = 0
+    local slideEndTime = 0
+    local rollGraceUntil, slideGraceUntil = 0, 0
+    local bashActive, bashLooping, bashDir = false, false, Vector3.zero
+    local currentTargetSpeed = WALK_SPEED
+    local speedGuardConn, speedEnforcing = nil, false
+    local mach4Attachment, mach4Particles, mach34Attachment, mach34Particles = nil, nil, nil, nil
+    local isHitboxLowered, savedHipHeight = false, 0
+    local currentFOV, targetFOV = 70, 70
+    local currentEmoteObject = nil
+    local lastJumpRequest = 0
+    local prevJumpStarted = false
+
+    local function isBusy()
+        return slamming or tauntOverride or emoteOverride or bashActive or bashLooping or splatActive or ceilingHitActive or superJumpPlaying or bellySliding or (slamming and slamFreezeActive) or runStarting
+    end
+
+    local function wantAnim(anim, looped, force, speed)
+        if not anim or not getgenv().Animator6D then return end
+        local spd = speed or 1
+        if not force then
+            if desiredState and desiredState.anim == anim and desiredState.loop == looped then
+                if desiredState.speed ~= spd then
+                    desiredState.speed = spd
+                    local char = Player.Character
+                    if char then
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        local animator = hum and hum:FindFirstChildOfClass("Animator")
+                        if animator then
+                            local ok, tracks = pcall(function() return animator:GetPlayingAnimationTracks() end)
+                            if ok and tracks then
+                                for _, track in ipairs(tracks) do
+                                    pcall(function() track:AdjustSpeed(spd) end)
+                                end
+                            end
+                        end
+                    end
+                end
+                return
+            end
+        end
+        idCounter = idCounter + 1
+        desiredState = {anim = anim, loop = looped, id = idCounter, speed = spd}
+    end
+
+    local function endRoll()
+        if not machRolling then return end
+        machRolling = false; machRollSpeed = 0
+        running = true
+        rollGraceUntil = tick() + ROLL_SLIDE_GRACE
+        if machRollResumePhase >= 4 then
+            runStartTime = tick() - (RUN1_LENGTH + RUN2_LENGTH + RUN3_LENGTH + 0.001)
+            lastRunPhase = 4
+        elseif machRollResumePhase == 3 then
+            runStartTime = tick() - (RUN1_LENGTH + RUN2_LENGTH + 0.001)
+            lastRunPhase = 3
+        else
+            runStartTime = tick() - (RUN1_LENGTH + 0.001)
+            lastRunPhase = 2
+        end
+        mach2StartDir = nil
+        resetAfterimageState()
+    end
+
+    local function endSlide()
+        if not machSliding then return end
+        machSliding = false; machRollSpeed = 0
+        running = true
+        slideGraceUntil = tick() + ROLL_SLIDE_GRACE
+        runStartTime = tick() - (RUN1_LENGTH + RUN2_LENGTH + 0.001)
+        lastRunPhase = 3
+        mach2StartDir = nil
+        resetAfterimageState()
+    end
+
+    local function cancelRollSlide()
+        if machRolling then endRoll() end
+        if machSliding then endSlide() end
+        if sounds.MACH4 and sounds.MACH4.IsPlaying then sounds.MACH4:Stop() end
+    end
+
+    -- SHORTER skid durations
+    local function getCancelDuration(phase)
+        if phase >= 4 then return 1.2
+        elseif phase == 3 then return 1.0
+        else return 0.75 end
+    end
+
+    local function getSkidSpeed(elapsed, startSpeed, phase)
+        local cancelDur = getCancelDuration(phase)
+        if elapsed < SKID_HESITATION then
+            local ht = elapsed / SKID_HESITATION
+            return startSpeed - (startSpeed - (startSpeed * 0.94)) * ht
+        else
+            local t = math.clamp((elapsed - SKID_HESITATION) / (cancelDur - SKID_HESITATION), 0, 1)
+            return SKID_TARGET_SPEED + (startSpeed - SKID_TARGET_SPEED) * (1 - t)
+        end
+    end
+
+    local function getCurrentRollSpeed()
+        local elapsed = tick() - machRollStartTime
+        local t = math.clamp(elapsed / MACHROLL_DURATION, 0, 1)
+        return ROLL_MIN_SPEED + (ROLL_MAX_SPEED - ROLL_MIN_SPEED) * t
+    end
+
+    -- Particles
+    local function setMach4Particles(active)
+        if active then
+            local char = Player.Character; if not char then return end
+            local root = char:FindFirstChild("HumanoidRootPart"); if not root then return end
+            if not mach4Particles or not mach4Particles.Parent or not mach4Attachment or not mach4Attachment.Parent or mach4Attachment.Parent ~= root then
+                if mach4Particles then pcall(function() mach4Particles:Destroy() end) end
+                if mach4Attachment then pcall(function() mach4Attachment:Destroy() end) end
+                mach4Attachment = Instance.new("Attachment"); mach4Attachment.Name = "PeppinoMach4Attachment"; mach4Attachment.CFrame = CFrame.new(0, 0.5, -5); mach4Attachment.Parent = root
+                mach4Particles = Instance.new("ParticleEmitter"); mach4Particles.Name = "PeppinoMach4Particles"
+                mach4Particles.Lifetime = NumberRange.new(0.3); mach4Particles.Speed = NumberRange.new(40); mach4Particles.Texture = "rbxassetid://12201347372"
+                mach4Particles.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.06, 2.87), NumberSequenceKeypoint.new(0.13, 3.812), NumberSequenceKeypoint.new(0.5, 5), NumberSequenceKeypoint.new(0.86, 3.687), NumberSequenceKeypoint.new(1, 0)})
+                mach4Particles.Transparency = NumberSequence.new(0); mach4Particles.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255)); mach4Particles.LightEmission = 0
+                mach4Particles.Orientation = Enum.ParticleOrientation.VelocityPerpendicular; mach4Particles.SpreadAngle = Vector2.new(0, 0); mach4Particles.EmissionDirection = Enum.NormalId.Back
+                mach4Particles.Acceleration = Vector3.new(0, 0, 0); mach4Particles.LockedToPart = true; mach4Particles.Parent = mach4Attachment
+                mach4Particles.Rate = 3; mach4Particles.Enabled = true
+            else 
+                mach4Particles.Rate = 3
+                mach4Particles.Enabled = true 
+            end
+        else 
+            if mach4Particles and mach4Particles.Parent then 
+                mach4Particles.Enabled = false
+                mach4Particles.Rate = 0
+                mach4Particles:Clear() 
+            end 
+        end
+    end
+
+    local function setMach34Particles(active)
+        if active then
+            local char = Player.Character; if not char then return end
+            local root = char:FindFirstChild("HumanoidRootPart"); if not root then return end
+            if not mach34Particles or not mach34Particles.Parent or not mach34Attachment or not mach34Attachment.Parent or mach34Attachment.Parent ~= root then
+                if mach34Particles then pcall(function() mach34Particles:Destroy() end) end
+                if mach34Attachment then pcall(function() mach34Attachment:Destroy() end) end
+                mach34Attachment = Instance.new("Attachment")
+                mach34Attachment.Name = "PeppinoMach34Attachment"
+                mach34Attachment.CFrame = CFrame.new(0, 0.5, -2.8)
+                mach34Attachment.Parent = root
+                mach34Particles = Instance.new("ParticleEmitter")
+                mach34Particles.Name = "PeppinoMach34Particles"
+                mach34Particles.Lifetime = NumberRange.new(0.4)
+                mach34Particles.Speed = NumberRange.new(8)
+                mach34Particles.Texture = "rbxassetid://7145697379"
+                mach34Particles.Size = NumberSequence.new(0.8)
+                mach34Particles.Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromHex("FF9123")), 
+                    ColorSequenceKeypoint.new(1, Color3.fromHex("FFE187"))
+                })
+                mach34Particles.SpreadAngle = Vector2.new(0, 360)
+                mach34Particles.Acceleration = Vector3.new(0, 0, 15)
+                mach34Particles.LockedToPart = true
+                mach34Particles.Orientation = Enum.ParticleOrientation.FacingCamera
+                mach34Particles.Transparency = NumberSequence.new(0)
+                mach34Particles.Parent = mach34Attachment
+                mach34Particles.Rate = 350
+                mach34Particles.Enabled = true
+                mach34Particles:Emit(50)
+            else 
+                mach34Particles.Rate = 350
+                mach34Particles.Enabled = true
+                mach34Particles.Transparency = NumberSequence.new(0)
+            end
+        else 
+            if mach34Particles and mach34Particles.Parent then 
+                mach34Particles.Enabled = false 
+                mach34Particles.Rate = 0
+            end 
+        end
+    end
+
+    -- Speed helpers
+    local function bindSpeedGuard(hum)
+        if not hum then return end
+        if speedGuardConn then pcall(function() speedGuardConn:Disconnect() end) end
+        speedGuardConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+            if speedEnforcing then return end
+            if hum.WalkSpeed ~= currentTargetSpeed then speedEnforcing = true; hum.WalkSpeed = currentTargetSpeed; speedEnforcing = false end
+        end)
+    end
+
+    local function setTargetSpeed(hum, speed)
+        currentTargetSpeed = speed
+        if hum and hum.WalkSpeed ~= speed then speedEnforcing = true; hum.WalkSpeed = speed; speedEnforcing = false end
+    end
+
+    -- Physics Loop
+    local function forceSpeedNow()
+        local char = Player.Character; if not char or not char.Parent then return end
+        local hum = char:FindFirstChildOfClass("Humanoid"); local root = char:FindFirstChild("HumanoidRootPart")
+        if not hum or not root or hum.Health <= 0 then return end
+
+        if slamming or slamLandingActive or crawling or wallClimbActive or machRolling or machSliding or bashActive or bashLooping or splatActive or ceilingHitActive or wallJumpOverride or emoteOverride or bellySliding then
+            local animator = hum:FindFirstChildOfClass("Animator")
+            if animator then
+                local ok, tracks = pcall(function() return animator:GetPlayingAnimationTracks() end)
+                if ok and tracks then for _, track in ipairs(tracks) do if track.Animation then local n = track.Animation.Name; if n == "Idle" or n == "Walk" or n == "Run" or n == "Fall" or n == "Jump" or n == "Climb" then track:Stop(0) end end end end
+            end
+        end
+
+        if tauntOverride then root.AssemblyLinearVelocity = Vector3.zero; root.Anchored = true; setTargetSpeed(hum, 0); return end
+        if emoteOverride then setTargetSpeed(hum, EMOTE_WALK_SPEED); return end
+
+        if bellySliding then
+            local elapsed = tick() - bellySlideStartTime
+            if elapsed >= BELLYSLIDE_TOTAL_DURATION then
+                bellySliding = false
+            else
+                local speed
+                if elapsed < BELLYSLIDE_FAST_DURATION then
+                    speed = BELLYSLIDE_FAST_SPEED
+                else
+                    local t = math.clamp((elapsed - BELLYSLIDE_FAST_DURATION) / (BELLYSLIDE_TOTAL_DURATION - BELLYSLIDE_FAST_DURATION), 0, 1)
+                    speed = BELLYSLIDE_END_SPEED + (BELLYSLIDE_FAST_SPEED - BELLYSLIDE_END_SPEED) * (1 - t) ^ 2
+                end
+                local md = hum.MoveDirection
+                if md.Magnitude > 0.1 then bellySlideDir = md.Unit end
+                setTargetSpeed(hum, speed)
+                root.AssemblyLinearVelocity = Vector3.new(bellySlideDir.X * speed, root.AssemblyLinearVelocity.Y, bellySlideDir.Z * speed)
+                return
+            end
+        end
+        
+        if runStarting then
+            local md = hum.MoveDirection
+            local slowSpeed = WALK_SPEED * 0.6
+            setTargetSpeed(hum, slowSpeed)
+            if md.Magnitude > 0.1 then
+                local h = Vector3.new(md.X, 0, md.Z).Unit
+                root.AssemblyLinearVelocity = Vector3.new(h.X * slowSpeed, root.AssemblyLinearVelocity.Y, h.Z * slowSpeed)
+            else
+                root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+            end
+            return 
+        end
+
+        if ceilingHitActive or splatActive then root.AssemblyLinearVelocity = Vector3.zero; root.Anchored = true; setTargetSpeed(hum, 0); return end
+        if wallJumpOverride then setTargetSpeed(hum, WALK_SPEED); return end
+
+        if wallClimbActive then
+            if not hum.PlatformStand then hum.PlatformStand = true end
+            setTargetSpeed(hum, 0)
+            local rayParams = RaycastParams.new(); rayParams.FilterDescendantsInstances = {char}; rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            local flatLook = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.CFrame = CFrame.lookAt(root.Position, root.Position + flatLook)
+            local ray = workspace:Raycast(root.Position, flatLook * 6, rayParams)
+            if ray then root.AssemblyLinearVelocity = Vector3.new(-ray.Normal.X * 5, CLIMB_SPEED, -ray.Normal.Z * 5)
+            else root.AssemblyLinearVelocity = Vector3.new(0, CLIMB_SPEED, 0) end
+            currentTargetSpeed = 0
+            return
+        else
+            if hum.PlatformStand == true then hum.PlatformStand = false end
+        end
+
+        if cancelActive then
+            local elapsed = tick() - cancelStartTime
+            local speed = getSkidSpeed(elapsed, cancelStartSpeed, cancelPhaseAtStart)
+            setTargetSpeed(hum, speed)
+            local v = root.AssemblyLinearVelocity
+            root.AssemblyLinearVelocity = Vector3.new(cancelDir.X * speed, v.Y, cancelDir.Z * speed)
+            local md = hum.MoveDirection
+            if md.Magnitude > 0.1 then
+                local newLook = Vector3.new(md.X, 0, md.Z).Unit
+                root.CFrame = CFrame.lookAt(root.Position, root.Position + newLook)
+            end
+            return
+        end
+
+        if machRolling or machSliding then
+            local md = hum.MoveDirection; if md.Magnitude > 0.1 then machRollDir = md.Unit end
+            local speed
+            if machRolling then speed = getCurrentRollSpeed()
+            else speed = SLIDE_FIXED_SPEED end
+            setTargetSpeed(hum, speed)
+            local v = root.AssemblyLinearVelocity; root.AssemblyLinearVelocity = Vector3.new(machRollDir.X * speed, v.Y, machRollDir.Z * speed)
+            return
+        end
+
+        if bashLooping then 
+            local md = hum.MoveDirection
+            if md.Magnitude > 0.05 then 
+                bashDir = bashDir:Lerp(md.Unit, 0.1)
+                if bashDir.Magnitude > 0 then bashDir = bashDir.Unit end
+            end 
+        end
+        if bashActive then root.AssemblyLinearVelocity = Vector3.zero; root.Anchored = true; setTargetSpeed(hum, 0); return end
+        if bashLooping then root.AssemblyLinearVelocity = Vector3.new(bashDir.X * BASH_SPEED, root.AssemblyLinearVelocity.Y, bashDir.Z * BASH_SPEED); setTargetSpeed(hum, BASH_SPEED); return end
+
+        if crawling then setTargetSpeed(hum, CRAWL_SPEED); return end
+        if slamming then
+            if slamFreezeActive then root.AssemblyLinearVelocity = Vector3.zero; root.Anchored = true; setTargetSpeed(hum, 0); return
+            else setTargetSpeed(hum, 0); currentTargetSpeed = 0; return end
+        end
+        if slamLandingActive then setTargetSpeed(hum, 0); currentTargetSpeed = 0; return end
+
+        if superJumpPlaying then root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0); setTargetSpeed(hum, 0); return end
+        if dashJumping then setTargetSpeed(hum, DASH_JUMP_FORWARD); return end
+
+        if dashActive then
+            local md = hum.MoveDirection
+            if dashIsMidAir and md.Magnitude > 0.05 then dashDir = md.Unit end
+            local currentDashSpeed = dashIsMidAir and MIDAIR_DASH_SPEED or DASH_SPEED
+            root.AssemblyLinearVelocity = Vector3.new(dashDir.X * currentDashSpeed, root.AssemblyLinearVelocity.Y, dashDir.Z * currentDashSpeed)
+            setTargetSpeed(hum, currentDashSpeed); return
+        end
+
+        if airRunActive and running then
+            local state = hum:GetState()
+            if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then
+                setTargetSpeed(hum, AIR_RUN_SPEED)
+                local md = hum.MoveDirection
+                if md.Magnitude > 0.05 then local h = Vector3.new(md.X, 0, md.Z).Unit; root.AssemblyLinearVelocity = Vector3.new(h.X * AIR_RUN_SPEED, root.AssemblyLinearVelocity.Y, h.Z * AIR_RUN_SPEED)
+                else root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0) end
+                return
+            end
+        end
+
+        if superjumpFalling then
+            setTargetSpeed(hum, FALL_MOVE_SPEED)
+            local md = hum.MoveDirection
+            if md.Magnitude > 0.05 then local h = Vector3.new(md.X, 0, md.Z).Unit; root.AssemblyLinearVelocity = Vector3.new(h.X * FALL_MOVE_SPEED, root.AssemblyLinearVelocity.Y, h.Z * FALL_MOVE_SPEED)
+            else root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0) end
+            return
+        end
+
+        if hum.WalkSpeed ~= currentTargetSpeed then setTargetSpeed(hum, currentTargetSpeed) end
+        local state = hum:GetState()
+        if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then return end
+
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.05 then
+            local h = Vector3.new(md.X, 0, md.Z).Unit
+            local targetV = Vector3.new(h.X * currentTargetSpeed, root.AssemblyLinearVelocity.Y, h.Z * currentTargetSpeed)
+            if (Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z) - Vector3.new(targetV.X, 0, targetV.Z)).Magnitude > 0.15 then
+                root.AssemblyLinearVelocity = targetV
+            end
+        end
+    end
+
+    getgenv().PeppinoSteppedConn = RunService.Stepped:Connect(function() pcall(forceSpeedNow) end)
+    RunService:BindToRenderStep("PeppinoForceSpeed", Enum.RenderPriority.Last.Value, function() pcall(forceSpeedNow) end)
+
+    getgenv().PeppinoHeartbeatConn1 = RunService.Heartbeat:Connect(function(dt)
+        pcall(function()
+            if slamming and not slamFreezeActive then
+                local root = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local elapsed = tick() - slamFallStartTime
+                    local ramp = math.clamp(elapsed / SLAM_WEIGHT_RAMP, 0, 1)
+                    local weight = SLAM_HEAVY_PUSH * ramp
+                    if root.AssemblyLinearVelocity.Y < 0 then 
+                        local vy = root.AssemblyLinearVelocity.Y - weight * dt
+                        if vy < -SLAM_MAX_FALL_SPEED then vy = -SLAM_MAX_FALL_SPEED end
+                        root.AssemblyLinearVelocity = Vector3.new(
+                            root.AssemblyLinearVelocity.X, 
+                            vy, 
+                            root.AssemblyLinearVelocity.Z
+                        ) 
+                    end
+                end
+            end
+        end)
+    end)
+
+    getgenv().PeppinoHeartbeatConn2 = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            if ceilingHitActive then
+                if tick() - ceilingHitStartTime >= CeilingLength then ceilingHitActive = false; local r = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart"); if r then r.Anchored = false end end
+                return
+            end
+            local char = Player.Character; if not char or not char.Parent then return end
+            local root = char:FindFirstChild("HumanoidRootPart"); if not root then return end
+            if root.AssemblyLinearVelocity.Y > 15 then
+                local rayParams = RaycastParams.new(); rayParams.FilterDescendantsInstances = {char}; rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                local ray = workspace:Raycast(root.Position, Vector3.new(0, 5, 0), rayParams)
+                if ray then
+                    ceilingHitActive = true; ceilingHitStartTime = tick(); superJumpPlaying = false; superjumpFalling = false; slamming = false; dashJumping = false
+                    cancelActive = false; running = false; if sounds.RUNCANCEL then sounds.RUNCANCEL:Stop() end
+                    local pushUpDist = math.max(ray.Distance - 1, 0)
+                    root.CFrame = root.CFrame + Vector3.new(0, pushUpDist, 0)
+                    root.AssemblyLinearVelocity = Vector3.zero; root.Anchored = true
+                    if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                    if Anim.Ceiling then pcall(getgenv().Animator6D, Anim.Ceiling, 1, false) end
+                end
+            end
+        end)
+    end)
+
+    task.spawn(function()
+        while true do
+            task.wait(0.01)
+            pcall(function()
+                if not Anim.Idle then return end
+                if not tauntOverride and not splatOverride and not wallJumpOverride and not ceilingHitActive and not emoteOverride then
+                    local want = desiredState
+                    if want and want.id ~= lastAppliedId then
+                        if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                        local ok = pcall(getgenv().Animator6D, want.anim, want.speed, want.loop)
+                        if ok then currentAnim = want.anim; lastAppliedId = want.id end
+                    end
+                end
+            end)
+        end
+    end)
+
+    local function startRun()
+        cancelRollSlide()
+        if running or runStarting or slamming or slamLandingActive or crawling or wallClimbActive or bashActive or bashLooping or splatActive or ceilingHitActive or wallJumpOverride or tauntOverride or emoteOverride or bellySliding then return end
+        runStarting = true; runStartupTime = tick(); lastRunPhase = 0; mach2StartDir = nil; resetAfterimageState()
+        if Anim.Startup then wantAnim(Anim.Startup, false, true) end
+    end
+
+    local function stopRun()
+        if runStarting then runStarting = false; setTargetSpeed(Player.Character and Player.Character:FindFirstChildOfClass("Humanoid"), WALK_SPEED); return end
+        if not running then return end
+        if lastRunPhase >= 2 and not cancelActive then
+            cancelActive = true; cancelStartTime = tick(); cancelStartSpeed = currentTargetSpeed; cancelPhaseAtStart = lastRunPhase
+            local root = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+            cancelDir = root and root.CFrame.LookVector or Vector3.zero
+            if Anim.RunCancel then wantAnim(Anim.RunCancel, true, true, CANCEL_ANIM_SPEED) end
+            if sounds.RUNCANCEL then
+                sounds.RUNCANCEL:Stop()
+                sounds.RUNCANCEL.TimePosition = 0
+                sounds.RUNCANCEL:Play()
+            end
+            running = false; return
+        end
+        running = false; lastRunPhase = 0; mach2StartDir = nil; superjumpCharging = false; airRunActive = false
+        resetAfterimageState(); setMach4Particles(false); setMach34Particles(false)
+        local hum = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+        if hum then setTargetSpeed(hum, WALK_SPEED) end
+    end
+
+    local function triggerSuperjump()
+        if isBusy() or not running then return end
+        superJumpPlaying = true; superjumpCharging = false; superjumpFalling = false; airRunActive = false; running = false
+        cancelActive = false; if sounds.RUNCANCEL then sounds.RUNCANCEL:Stop() end
+        lastRunPhase = 0; mach2StartDir = nil; resetAfterimageState(); setMach4Particles(false); setMach34Particles(false)
+        
+        local keepSounds = {TAUNT = true, EMOTE_STARTUP = true, EMOTE_LOOP = true, SLAMHIT = true, SPLAT = true, IMPACT = true}
+        for name, s in pairs(sounds) do
+            if name ~= "JUMP_LAUNCH" and not keepSounds[name] and s.IsPlaying then s:Stop() end
+        end
+
+        if sounds.JUMP_LAUNCH then sounds.JUMP_LAUNCH.TimePosition = 0; sounds.JUMP_LAUNCH:Play() end
+        if Anim.SuperJump then wantAnim(Anim.SuperJump, true, true, SUPERJUMP_ANIM_SPEED) end
+
+        local char = Player.Character; local hum = char and char:FindFirstChildOfClass("Humanoid"); local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not hum or not root then superJumpPlaying = false return end
+
+        task.spawn(function()
+            pcall(function()
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                local start = tick()
+                while tick() - start < LAUNCH_DURATION do
+                    if not root.Parent or not hum.Parent or hum.Health <= 0 or ceilingHitActive then superJumpPlaying = false return end
+                    root.AssemblyLinearVelocity = Vector3.new(0, LAUNCH_SPEED, 0)
+                    RunService.Heartbeat:Wait()
+                end
+                local airStart = tick()
+                while tick() - airStart < 5 do
+                    if not root.Parent or not hum.Parent or hum.Health <= 0 or ceilingHitActive then superJumpPlaying = false return end
+                    if root.AssemblyLinearVelocity.Y < PEAK_THRESHOLD then superJumpPlaying = false; superjumpFalling = true; return end
+                    RunService.Heartbeat:Wait()
+                end
+                superJumpPlaying = false; superjumpFalling = true
+            end)
+        end)
+    end
+
+    local function startDash()
+        if machRolling or machSliding then cancelRollSlide(); return end
+        
+        if dashActive and not dashIsMidAir and not bellySliding then
+            dashActive = false
+            bellySliding = true
+            bellySlideStartTime = tick()
+            bellySlideDir = dashDir
+            if sounds.DASH then sounds.DASH.TimePosition = 0; sounds.DASH:Play() end
+            if Anim.BellySlide then wantAnim(Anim.BellySlide, true, true) end
+            return
+        end
+        if bellySliding then return end
+        
+        if isBusy() then return end
+        if superJumpPlaying or superjumpFalling or superjumpCharging then
+            superJumpPlaying = false; superjumpFalling = false; superjumpCharging = false
+            cancelActive = false; running = false; if sounds.RUNCANCEL then sounds.RUNCANCEL:Stop() end; if sounds.JUMP_CHARGE then sounds.JUMP_CHARGE:Stop() end
+            if sounds.JUMP_CANCEL then sounds.JUMP_CANCEL.TimePosition = 0; sounds.JUMP_CANCEL:Play() end
+            bashActive = true; bashLooping = false
+            local char = Player.Character; local hum = char and char:FindFirstChildOfClass("Humanoid"); local root = char and char:FindFirstChild("HumanoidRootPart")
+            if hum and root then 
+                bashDir = hum.MoveDirection.Magnitude > 0.1 and hum.MoveDirection.Unit or root.CFrame.LookVector
+                root.AssemblyLinearVelocity = Vector3.zero; root.Anchored = true 
+            end
+            if Anim.BashStart then wantAnim(Anim.BashStart, false, true) end
+            task.spawn(function()
+                task.wait(BASH_STARTUP_TIME)
+                if bashActive then 
+                    bashActive = false; bashLooping = true; 
+                    if root and root.Parent then root.Anchored = false; root.AssemblyLinearVelocity = Vector3.new(bashDir.X * BASH_SPEED, 0, bashDir.Z * BASH_SPEED) end
+                    if Anim.BashLoop then wantAnim(Anim.BashLoop, true, true) end 
+                end
+            end)
+            return
+        end
+        if not Player.Character then return end
+        local hum = Player.Character:FindFirstChildOfClass("Humanoid"); local root = Player.Character:FindFirstChild("HumanoidRootPart")
+        if not hum or not root or hum.Health <= 0 then return end
+        if sounds.DASH then sounds.DASH.TimePosition = 0; sounds.DASH:Play() end
+        dashDir = hum.MoveDirection.Magnitude > 0.1 and hum.MoveDirection.Unit or root.CFrame.LookVector
+        dashIsMidAir = hum:GetState() == Enum.HumanoidStateType.Jumping or hum:GetState() == Enum.HumanoidStateType.Freefall
+        dashActive = true; dashStartTime = tick(); dashJumping = false
+        if not dashIsMidAir then slideComboReady = true; slideComboTime = tick() + 1.5 end
+    end
+
+    local function startSlam()
+        if bellySliding then bellySliding = false end
+        if machRolling or machSliding then cancelRollSlide(); return end
+        if not Player.Character then return end
+        local hum = Player.Character:FindFirstChildOfClass("Humanoid"); local root = Player.Character:FindFirstChild("HumanoidRootPart")
+        if not hum or not root or hum.Health <= 0 then return end
+
+        if (dashActive or (tick() - dashStartTime <= 0.4)) and not dashIsMidAir then
+            dashActive = false; machSliding = true
+            machRollStartTime = tick()
+            slideEndTime = tick() + SLIDE_DURATION
+            machRollDir = hum.MoveDirection.Magnitude > 0.1 and hum.MoveDirection.Unit or root.CFrame.LookVector
+            if Anim.Slide then wantAnim(Anim.Slide, true, true) end
+            return
+        end
+
+        if running and lastRunPhase >= 2 then
+            running = false; machRolling = true; machSliding = false
+            machRollStartTime = tick()
+            machRollEndTime = tick() + MACHROLL_DURATION
+            machRollResumePhase = lastRunPhase
+            machRollDir = hum.MoveDirection.Magnitude > 0.1 and hum.MoveDirection.Unit or root.CFrame.LookVector
+            if Anim.Roll then wantAnim(Anim.Roll, true, true, 1.0) end
+            return
+        end
+
+        if isBusy() then return end
+        if hum:GetState() ~= Enum.HumanoidStateType.Jumping and hum:GetState() ~= Enum.HumanoidStateType.Freefall then return end
+
+        cancelActive = false; if sounds.RUNCANCEL then sounds.RUNCANCEL:Stop() end
+        stopRun(); superjumpFalling = false; airRunActive = false
+        slamming = true; slamFreezeActive = true; slamStartTime = tick()
+        resetAfterimageState()
+        root.AssemblyLinearVelocity = Vector3.zero; root.Anchored = true
+        if Anim.SlamStart then wantAnim(Anim.SlamStart, false, true) end
+
+        task.spawn(function()
+            task.wait(SLAM_FREEZE_DURATION)
+            if not slamming then return end
+            slamFreezeActive = false; slamFallStartTime = tick()
+            if root and root.Parent then root.Anchored = false; root.AssemblyLinearVelocity = Vector3.new(0, SLAM_FALL_SPEED, 0) end
+            if Anim.SlamFall then wantAnim(Anim.SlamFall, true, true) end
+        end)
+    end
+
+    UserInputService.JumpRequest:Connect(function()
+        pcall(function()
+            if tick() - lastJumpRequest < 0.1 then return end
+            lastJumpRequest = tick()
+            
+            if bellySliding then bellySliding = false end
+            
+            if emoteOverride then 
+                emoteOverride = false
+                if sounds.EMOTE_STARTUP then sounds.EMOTE_STARTUP:Stop() end
+                if sounds.EMOTE_LOOP then sounds.EMOTE_LOOP:Stop() end
+                if currentEmoteObject then currentEmoteObject:Destroy(); currentEmoteObject = nil end
+                if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                desiredState = nil
+                currentAnim = nil 
+            end
+            cancelRollSlide()
+            if wallClimbActive then
+                if tick() - wallClimbStartTime > 0.25 then
+                    local char = Player.Character; local root = char and char:FindFirstChild("HumanoidRootPart"); local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    if root and hum then
+                        local rayParams = RaycastParams.new(); rayParams.FilterDescendantsInstances = {char}; rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                        local ray = workspace:Raycast(root.Position, root.CFrame.LookVector * 4, rayParams)
+                        local pushDir = ray and ray.Normal or root.CFrame.LookVector
+                        wallClimbActive = false; hum.PlatformStand = false; wallJumpOverride = true; wallClimbCooldown = tick() + 0.5
+                        cancelActive = false; running = false; if sounds.RUNCANCEL then sounds.RUNCANCEL:Stop() end
+                        root.AssemblyLinearVelocity = Vector3.new(pushDir.X * 80, 60, pushDir.Z * 80)
+                        if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                        if Anim.WallJump then pcall(getgenv().Animator6D, Anim.WallJump, 1, false) end
+                        task.spawn(function() task.wait(WallJumpLength); wallJumpOverride = false end)
+                    end
+                end
+                return
+            end
+            if dashActive and not dashIsMidAir then
+                dashActive = false; dashJumping = true; dashJumpStartTime = tick()
+                local char = Player.Character; local hum = char and char:FindFirstChildOfClass("Humanoid"); local root = char and char:FindFirstChild("HumanoidRootPart")
+                if hum and root then pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end); root.AssemblyLinearVelocity = Vector3.new(dashDir.X * DASH_JUMP_FORWARD, DASH_JUMP_UP, dashDir.Z * DASH_JUMP_FORWARD) end
+                if Anim.DashJump then wantAnim(Anim.DashJump, false, true) end
+            elseif running and lastRunPhase >= 2 and not crawling and not slamming and not machRolling and not machSliding and not bashActive and not bashLooping and not splatActive and not ceilingHitActive and not tauntOverride and not emoteOverride and tick() > wallClimbCooldown then
+                local char = Player.Character; local root = char and char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local rayParams = RaycastParams.new(); rayParams.FilterDescendantsInstances = {char}; rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                    local flatLook = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+                    local ray = workspace:Raycast(root.Position, flatLook * 6, rayParams)
+                    if ray and ray.Normal.Y < 0.7 then 
+                        wallClimbActive = true
+                        wallClimbPulledUp = false
+                        wallClimbStartTime = tick()
+                        running = false
+                        lastRunPhase = 0
+                        cancelActive = false
+                        if sounds.RUNCANCEL then sounds.RUNCANCEL:Stop() end
+                        setMach4Particles(false)
+                        setMach34Particles(false)
+                    end
+                end
+            end
+        end)
+    end)
+
+    -- Taunts
+    local function buildFrozenKFS(originalKfs)
+        local frames = originalKfs:GetKeyframes(); if #frames == 0 then return originalKfs end
+        local lastFrame = frames[1]; for _, f in ipairs(frames) do if f.Time > lastFrame.Time then lastFrame = f end end
+        local newKfs = Instance.new("KeyframeSequence"); newKfs.Name = "FrozenTaunt_" .. tick(); newKfs.Loop = true; newKfs.Priority = Enum.AnimationPriority.Action4
+        local kf1 = Instance.new("Keyframe"); kf1.Name = "Start"; kf1.Time = 0
+        for _, pose in ipairs(lastFrame:GetChildren()) do if pose:IsA("Pose") then local p = pose:Clone(); p.Parent = kf1 end end
+        kf1.Parent = newKfs; local kf2 = kf1:Clone(); kf2.Name = "End"; kf2.Time = 0.8; kf2.Parent = newKfs
+        return newKfs
+    end
+
+    local function startTaunt()
+        if cancelActive then return end
+        
+        if sounds.TAUNT then sounds.TAUNT:Stop(); sounds.TAUNT.TimePosition = 0; sounds.TAUNT:Play() end
+        
+        local char = Player.Character; if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        
+        tauntSavedRunElapsed = running and (tick() - runStartTime) or nil
+        tauntSavedDashElapsed = dashActive and (tick() - dashStartTime) or nil
+        
+        if root then 
+            local oldGui = root:FindFirstChild("TauntFlashGui")
+            if oldGui then oldGui:Destroy() end
+            local billboard = Instance.new("BillboardGui"); billboard.Name = "TauntFlashGui"; billboard.Size = UDim2.new(6, 0, 6, 0); billboard.Adornee = root; billboard.Parent = root
+            local img = Instance.new("ImageLabel"); img.Image = "rbxassetid://12797922011"; img.BackgroundTransparency = 1; img.Size = UDim2.new(1, 0, 1, 0); img.Parent = billboard
+            task.delay(0.1, function() if billboard and billboard.Parent then billboard.Size = UDim2.new(7, 0, 7, 0) end end)
+            task.delay(0.8, function() if billboard then billboard:Destroy() end end)
+            
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.Anchored = true
+        end
+        
+        tauntOverride = true; tauntEndTime = tick() + 0.8
+        
+        task.spawn(function()
+            if #TauntAnims > 0 then
+                local frozenTaunt = buildFrozenKFS(TauntAnims[math.random(1, #TauntAnims)])
+                if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                pcall(getgenv().Animator6D, frozenTaunt, 1, true)
+            end
+        end)
+    end
+
+    local function startEmote()
+        if isBusy() then return end
+        if bellySliding then bellySliding = false end
+        cancelRollSlide()
+        cancelActive = false; running = false; if sounds.RUNCANCEL then sounds.RUNCANCEL:Stop() end
+        if running then stopRun() end
+        emoteOverride = true; emoteEndTime = tick() + 5
+        local char = Player.Character; if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if sounds.EMOTE_STARTUP then sounds.EMOTE_STARTUP.TimePosition = 0; sounds.EMOTE_STARTUP:Play() end
+        if sounds.EMOTE_LOOP then sounds.EMOTE_LOOP.TimePosition = 0; sounds.EMOTE_LOOP:Play() end
+        task.spawn(function() if Anim.Breakdance then if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end; pcall(getgenv().Animator6D, Anim.Breakdance, 1, true) end end)
+        if root then
+            if currentEmoteObject then currentEmoteObject:Destroy() end
+            local model = Instance.new("Model"); model.Name = "EmoteObject"
+            local hitbox = Instance.new("Part"); hitbox.Name = "Hitbox"; hitbox.Size = Vector3.new(3, 1.4, 0.6); hitbox.Transparency = 1; hitbox.CanCollide = true; hitbox.Anchored = true; hitbox.CollisionGroup = EMOTE_COLLISION_GROUP; hitbox.Parent = model
+            local mesh = Instance.new("MeshPart"); mesh.Name = "VisualMesh"; mesh.MeshId = "rbxassetid://212302951"; mesh.TextureID = "rbxassetid://212303049"; mesh.Size = Vector3.new(4, 4, 4); mesh.CanCollide = false; mesh.Anchored = true; mesh.CollisionGroup = EMOTE_COLLISION_GROUP; mesh.Parent = model
+            local weld = Instance.new("WeldConstraint"); weld.Part0 = hitbox; weld.Part1 = mesh; weld.Parent = hitbox
+            model.PrimaryPart = hitbox; model.Parent = workspace; currentEmoteObject = model
+            model:PivotTo(root.CFrame * CFrame.new(3.4, -2.1, 3.3) * CFrame.Angles(0, math.rad(24.4), 0))
+        end
+        task.spawn(function()
+            task.wait(5)
+            if emoteOverride then
+                emoteOverride = false; if sounds.EMOTE_STARTUP then sounds.EMOTE_STARTUP:Stop() end; if sounds.EMOTE_LOOP then sounds.EMOTE_LOOP:Stop() end
+                if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                desiredState = nil; currentAnim = nil
+                if currentEmoteObject then currentEmoteObject:Destroy(); currentEmoteObject = nil end
+            end
+        end)
+    end
+
+    -- Binds
+    local function getIsAir()
+        local hum = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+        if not hum then return false end
+        local st = hum:GetState()
+        return st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall
+    end
+
+    ContextActionService:BindAction("EmoteAction", function(_, inputState) if inputState == Enum.UserInputState.Begin then pcall(startEmote) end return Enum.ContextActionResult.Pass end, true, EMOTE_KEY)
+    pcall(function() ContextActionService:SetTitle("EmoteAction", "Emote"); ContextActionService:SetPosition("EmoteAction", EMOTE_BUTTON_POS) end)
+
+    ContextActionService:BindAction("SlamAction", function(_, inputState)
+        pcall(function()
+            if inputState == Enum.UserInputState.Begin then
+                slamPressTime = tick(); slamHold = true
+                if (running and lastRunPhase >= 3) or (slideComboReady and tick() <= slideComboTime) or dashActive then startSlam(); slamHold = false end
+            elseif inputState == Enum.UserInputState.End then
+                slamHold = false
+                if crawling then crawling = false
+                elseif (tick() - slamPressTime) < CRAWL_HOLD_TIME and not machRolling and not machSliding then startSlam() end
+            end
+        end)
+        return Enum.ContextActionResult.Pass
+    end, true, SLAM_KEY)
+    pcall(function() ContextActionService:SetTitle("SlamAction", "Slam"); ContextActionService:SetPosition("SlamAction", SLAM_BUTTON_POS) end)
+
+    ContextActionService:BindAction("DashAction", function(_, inputState) if inputState == Enum.UserInputState.Begin then pcall(startDash) end return Enum.ContextActionResult.Pass end, true, DASH_KEY)
+    pcall(function() ContextActionService:SetTitle("DashAction", "Dash"); ContextActionService:SetPosition("DashAction", DASH_BUTTON_POS) end)
+
+    ContextActionService:BindAction("TauntAction", function(_, inputState) if inputState == Enum.UserInputState.Begin then pcall(startTaunt) end return Enum.ContextActionResult.Pass end, true, TAUNT_KEY)
+    pcall(function() ContextActionService:SetTitle("TauntAction", "Taunt"); ContextActionService:SetPosition("TauntAction", TAUNT_BUTTON_POS) end)
+
+    ContextActionService:BindAction("MachRunAction", function(_, inputState)
+        pcall(function()
+            if inputState == Enum.UserInputState.Begin then
+                pressStartTime = tick()
+                if running and not superJumpPlaying and not getIsAir() and not slamming and not slamLandingActive and not crawling and not wallClimbActive and not machRolling and not machSliding and not bashActive and not bashLooping and not splatActive and not ceilingHitActive and not wallJumpOverride and not tauntOverride and not emoteOverride then
+                    superjumpCharging = true; setMach4Particles(false); setMach34Particles(false)
+                    cancelActive = false; if sounds.RUNCANCEL then sounds.RUNCANCEL:Stop() end
+                    if sounds.MACH12 and sounds.MACH12.IsPlaying then sounds.MACH12:Stop() end
+                    if sounds.MACH3 and sounds.MACH3.IsPlaying then sounds.MACH3:Stop() end
+                    if sounds.MACH4 and sounds.MACH4.IsPlaying then sounds.MACH4:Stop() end
+                    if sounds.WALK and sounds.WALK.IsPlaying then sounds.WALK:Stop() end
+                    if Anim.SuperJumpStart then wantAnim(Anim.SuperJumpStart, true, true, CHARGE_ANIM_SPEED) end
+                    if sounds.JUMP_PREP then sounds.JUMP_PREP.TimePosition = 0; sounds.JUMP_PREP:Play() end
+                    task.delay(0.5, function() if superjumpCharging and sounds.JUMP_CHARGE then sounds.JUMP_CHARGE.TimePosition = 0; sounds.JUMP_CHARGE:Play() end end)
+                end
+            elseif inputState == Enum.UserInputState.End or inputState == Enum.UserInputState.Cancel then
+                if superjumpCharging then
+                    local held = tick() - pressStartTime; superjumpCharging = false; if sounds.JUMP_CHARGE then sounds.JUMP_CHARGE:Stop() end
+                    if held >= TAP_THRESHOLD then triggerSuperjump() end
+                else
+                    if not running then startRun(); airRunActive = getIsAir() end
+                end
+            end
+        end)
+        return Enum.ContextActionResult.Pass
+    end, true, RUN_KEY)
+    pcall(function() ContextActionService:SetTitle("MachRunAction", "Run"); ContextActionService:SetPosition("MachRunAction", RUN_BUTTON_POS) end)
+
+    local splatCooldown = 0
+    getgenv().PeppinoRenderSteppedConn1 = RunService.Stepped:Connect(function()
+        pcall(function()
+            if not Anim.Idle then return end
+            if not running or lastRunPhase < 2 or splatActive or slamming or wallClimbActive or crawling or bashActive or bashLooping or machRolling or machSliding or ceilingHitActive or wallJumpOverride or tauntOverride or emoteOverride or bellySliding then return end
+            local char = Player.Character; if not char then return end
+            local hum = char:FindFirstChildOfClass("Humanoid"); local root = char:FindFirstChild("HumanoidRootPart"); if not hum or not root then return end
+            if hum.FloorMaterial == Enum.Material.Air or hum:GetState() == Enum.HumanoidStateType.Jumping or hum:GetState() == Enum.HumanoidStateType.Freefall then return end
+            if tick() > splatCooldown then
+                local ignoreList = {char}; for _, p in ipairs(Players:GetPlayers()) do if p.Character then table.insert(ignoreList, p.Character) end end
+                local rayParams = RaycastParams.new(); rayParams.FilterDescendantsInstances = ignoreList; rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                local ray = workspace:Raycast(root.Position, root.CFrame.LookVector * 2.5, rayParams)
+                if ray and ray.Normal.Y < 0.5 then
+                    local hitModel = ray.Instance:FindFirstAncestorOfClass("Model")
+                    if not (hitModel and hitModel:FindFirstChildOfClass("Humanoid")) then
+                        splatCooldown = tick() + 1.0; splatActive = true; splatEndTime = tick() + SplatLength; splatOverride = true
+                        running = false; lastRunPhase = 0; mach2StartDir = nil; stopRun(); hum.WalkSpeed = 0; root.AssemblyLinearVelocity = Vector3.zero
+                        cancelActive = false; if sounds.RUNCANCEL then sounds.RUNCANCEL:Stop() end
+                        local snapPos = ray.Position + ray.Normal * 0.5
+                        root.CFrame = CFrame.lookAt(Vector3.new(snapPos.X, root.Position.Y, snapPos.Z), Vector3.new(ray.Position.X, root.Position.Y, ray.Position.Z))
+                        if sounds.IMPACT then sounds.IMPACT.TimePosition = 0; sounds.IMPACT:Play() end
+                        if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                        if Anim.Splat then pcall(getgenv().Animator6D, Anim.Splat, 1, false) end
+                        task.spawn(function() task.wait(SplatLength); splatActive = false; splatOverride = false; if root and root.Parent then root.Anchored = false end end)
+                    end
+                end
+            end
+        end)
+    end)
+
+    getgenv().PeppinoRenderSteppedConn2 = RunService.RenderStepped:Connect(function(dt)
+        pcall(function()
+            if not Anim.Idle then return end
+            local char = Player.Character; if not char or not char.Parent then return end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local inAir = hum and (hum:GetState() == Enum.HumanoidStateType.Jumping or hum:GetState() == Enum.HumanoidStateType.Freefall)
+
+            local restrictParticles = cancelActive or superjumpCharging or dashActive or machRolling or machSliding or airRunActive or wallClimbActive or splatActive or inAir or bellySliding
+
+            if mach34Particles and mach34Particles.Parent then
+                if running and lastRunPhase >= 3 and not restrictParticles then
+                    if mach34Particles.Rate ~= 350 or not mach34Particles.Enabled then
+                        mach34Particles.Rate = 350
+                        mach34Particles.Enabled = true
+                    end
+                else
+                    if mach34Particles.Enabled then mach34Particles.Enabled = false end
+                end
+            end
+            if mach4Particles and mach4Particles.Parent then
+                if running and lastRunPhase == 4 and not restrictParticles then
+                    if mach4Particles.Rate ~= 3 or not mach4Particles.Enabled then
+                        mach4Particles.Rate = 3
+                        mach4Particles.Enabled = true
+                    end
+                else
+                    if mach4Particles.Enabled then mach4Particles.Enabled = false end
+                end
+            end
+
+            if not workspace.CurrentCamera then return end
+            if tauntOverride or emoteOverride then targetFOV = 65
+            elseif bellySliding then targetFOV = 100
+            elseif superJumpPlaying or superjumpFalling then targetFOV = 85
+            elseif slamming and not slamFreezeActive then
+                local root = char:FindFirstChild("HumanoidRootPart")
+                local vy = root and math.abs(root.AssemblyLinearVelocity.Y) or 0
+                targetFOV = 80 + math.clamp(vy / 5, 0, 22)
+            elseif cancelActive then targetFOV = 75
+            elseif machRolling then targetFOV = 90
+            elseif machSliding then targetFOV = 95
+            elseif running then
+                if lastRunPhase == 4 then targetFOV = 105 elseif lastRunPhase == 3 then targetFOV = 90 elseif lastRunPhase == 2 then targetFOV = 80 else targetFOV = 75 end
+            else targetFOV = 70 end
+            currentFOV = currentFOV + (targetFOV - currentFOV) * 8 * dt
+            workspace.CurrentCamera.FieldOfView = currentFOV
+        end)
+    end)
+
+    -- Main Loop
+    getgenv().PeppinoRenderSteppedConn3 = RunService.RenderStepped:Connect(function()
+        pcall(function()
+            if not Anim.Idle then return end
+            local char = Player.Character; if not char or not char.Parent then return end
+            local hum = char:FindFirstChildOfClass("Humanoid"); if not hum or hum.Health <= 0 then return end
+            local inAir = hum:GetState() == Enum.HumanoidStateType.Jumping or hum:GetState() == Enum.HumanoidStateType.Freefall
+
+            if char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.Anchored and not splatActive and not ceilingHitActive and not bashActive and not (slamming and slamFreezeActive) and not tauntOverride then
+                 char.HumanoidRootPart.Anchored = false
+            end
+
+            if machRolling or machSliding then
+                if not isHitboxLowered then isHitboxLowered = true; savedHipHeight = hum.HipHeight; hum.HipHeight = 0 end
+            else
+                if isHitboxLowered then isHitboxLowered = false; hum.HipHeight = savedHipHeight end
+            end
+
+            if tauntOverride then
+                setTargetSpeed(hum, 0); local root = char:FindFirstChild("HumanoidRootPart")
+                if root then root.AssemblyLinearVelocity = Vector3.zero; root.Anchored = true end
+                if tick() >= tauntEndTime then 
+                    tauntOverride = false
+                    if root then root.Anchored = false end
+                    if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                    desiredState = nil; currentAnim = nil 
+                    if running and tauntSavedRunElapsed then runStartTime = tick() - tauntSavedRunElapsed end
+                    if dashActive and tauntSavedDashElapsed then dashStartTime = tick() - tauntSavedDashElapsed end
+                    tauntSavedRunElapsed = nil
+                    tauntSavedDashElapsed = nil
+                end
+                return
+            end
+
+            if emoteOverride then setTargetSpeed(hum, EMOTE_WALK_SPEED); setMach34Particles(false); setMach4Particles(false); return end
+
+            if bellySliding then
+                local elapsed = tick() - bellySlideStartTime
+                if elapsed >= BELLYSLIDE_TOTAL_DURATION then
+                    bellySliding = false
+                else
+                    if Anim.BellySlide then wantAnim(Anim.BellySlide, true, false) end
+                    if elapsed > 0.3 then maybeSpawnAfterimage(char, 3) end
+                    setMach34Particles(false); setMach4Particles(false)
+                    return
+                end
+            end
+
+            if runStarting then
+                setTargetSpeed(hum, 0)
+                if tick() - runStartupTime >= StartupLength then runStarting = false; running = true; runStartTime = tick(); lastRunPhase = 0; mach2StartDir = nil end
+                return
+            end
+
+            local md = hum.MoveDirection; local priorMD = lastMoveDir; if md.Magnitude > 0.1 then lastMoveDir = md end
+            if splatActive or ceilingHitActive then setTargetSpeed(hum, 0); return end
+            if wallJumpOverride then setTargetSpeed(hum, WALK_SPEED); return end
+
+            if bashActive then setTargetSpeed(hum, 0); return end
+            if bashLooping then
+                if hum.FloorMaterial ~= Enum.Material.Air then bashLooping = false
+                else if Anim.BashLoop then wantAnim(Anim.BashLoop, true, false) end; return end
+            end
+
+            if machRolling then 
+                if tick() >= machRollEndTime then
+                    endRoll()
+                else
+                    local speed = getCurrentRollSpeed()
+                    setTargetSpeed(hum, speed); 
+                    if Anim.Roll then wantAnim(Anim.Roll, true, false, speed / 60) end
+                    if tick() - machRollStartTime > 0.3 then maybeSpawnAfterimage(char, 3, 0.08) end
+                    setMach34Particles(false); setMach4Particles(false); return 
+                end
+            end
+            if machSliding then 
+                if tick() >= slideEndTime then
+                    endSlide()
+                else
+                    setTargetSpeed(hum, SLIDE_FIXED_SPEED); 
+                    if Anim.Slide then wantAnim(Anim.Slide, true, false) end; 
+                    if tick() - machRollStartTime > 0.3 then maybeSpawnAfterimage(char, 3) end
+                    setMach34Particles(false); setMach4Particles(false); return 
+                end
+            end
+
+            if slamHold and not crawling and not slamming and not wallClimbActive and not machRolling and not machSliding and (tick() - slamPressTime) > CRAWL_HOLD_TIME then
+                crawling = true; stopRun(); if Anim.CrawlIdle then wantAnim(Anim.CrawlIdle, true, false) end
+            end
+
+            if crawling then
+                setTargetSpeed(hum, CRAWL_SPEED)
+                if hum:GetState() == Enum.HumanoidStateType.Jumping or hum:GetState() == Enum.HumanoidStateType.Freefall then crawling = false
+                else if md.Magnitude > 0.1 then if Anim.CrawlWalk then wantAnim(Anim.CrawlWalk, true, false) end else if Anim.CrawlIdle then wantAnim(Anim.CrawlIdle, true, false) end end; return end
+            end
+
+            if wallClimbActive then
+                hum.PlatformStand = true
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local rayParams = RaycastParams.new(); rayParams.FilterDescendantsInstances = {char}; rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                    local flatLook = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+                    local headRay = workspace:Raycast(root.Position + Vector3.new(0, 2.5, 0), flatLook * 3, rayParams)
+                    if not headRay then
+                        wallClimbActive = false; hum.PlatformStand = false; wallClimbPulledUp = true
+                        root.AssemblyLinearVelocity = Vector3.new(flatLook.X * 40, 60, flatLook.Z * 40); pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+                        if Anim.Jump then wantAnim(Anim.Jump, false, true) end; return
+                    end
+                    local ray = workspace:Raycast(root.Position, flatLook * 6, rayParams)
+                    if not ray or ray.Normal.Y >= 0.7 then wallClimbActive = false; hum.PlatformStand = false
+                    else 
+                        setTargetSpeed(hum, 0)
+                        if Anim.Climb then wantAnim(Anim.Climb, true, false) end
+                        maybeSpawnAfterimage(char, 3) 
+                        setMach34Particles(false)
+                        setMach4Particles(false)
+                        return
+                    end
+                else wallClimbActive = false end
+            end
+
+            if slamming then
+                if slamFreezeActive then return end
+                local root = char:FindFirstChild("HumanoidRootPart")
+                local vy = root and root.AssemblyLinearVelocity.Y or 0
+                local stillAirborne = (hum.FloorMaterial == Enum.Material.Air) or (vy < -5)
+                if stillAirborne or (tick() - slamFallStartTime) < 0.15 then
+                    if Anim.SlamFall then wantAnim(Anim.SlamFall, true, false) end
+                    local fallSpeed = math.abs(vy)
+                    local throttle = math.max(0.02, 0.12 - (fallSpeed / 3000))
+                    maybeSpawnAfterimage(char, 3, throttle)
+                    return
+                else
+                    slamming = false; slamFreezeActive = false
+                    if root then root.AssemblyLinearVelocity = Vector3.zero end
+                    if Anim.HitGround then slamLandingActive = true; slamLandingStartTime = tick(); wantAnim(Anim.HitGround, false, false); if sounds.SPLAT then sounds.SPLAT.TimePosition = 0; sounds.SPLAT:Play() end end
+                end
+            end
+
+            if slamLandingActive then
+                if (tick() - slamLandingStartTime) < HitGroundLength then setTargetSpeed(hum, 0); if root then root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0) end; return
+                else slamLandingActive = false end
+            end
+
+            local inGrace = tick() < rollGraceUntil or tick() < slideGraceUntil
+            if running and not superjumpCharging and not superJumpPlaying and not superjumpFalling and not dashActive and not dashJumping and not airRunActive and md.Magnitude < 0.1 and not inGrace then stopRun() end
+            if superjumpCharging then setTargetSpeed(hum, CHARGE_SPEED); setMach34Particles(false); setMach4Particles(false); return end
+            if superJumpPlaying then setTargetSpeed(hum, 0); return end
+
+            if dashActive then
+                local dashTimeUp = (tick() - dashStartTime) >= DASH_DURATION
+                if dashIsMidAir and hum:GetState() == Enum.HumanoidStateType.Freefall then
+                    if (tick() - dashStartTime) > MIDAIR_DASH_MAX then 
+                        dashActive = false; dashIsMidAir = false
+                        if running and lastRunPhase >= 3 then
+                            runStartTime = tick() - (RUN1_LENGTH + RUN2_LENGTH + RUN3_LENGTH + 0.01)
+                        end
+                    else if Anim.MidAirDash then wantAnim(Anim.MidAirDash, true, false, DASH_ANIM_SPEED) end; if lastRunPhase >= 3 then maybeSpawnAfterimage(char, 3) end; return end
+                else
+                    if dashTimeUp then 
+                        dashActive = false; dashIsMidAir = false
+                        if running and lastRunPhase >= 3 then
+                            runStartTime = tick() - (RUN1_LENGTH + RUN2_LENGTH + RUN3_LENGTH + 0.01)
+                        end
+                    else if Anim.Lunge then wantAnim(Anim.Lunge, false, false, DASH_ANIM_SPEED) elseif Anim.MidAirDash then wantAnim(Anim.MidAirDash, true, false, DASH_ANIM_SPEED) end; if lastRunPhase >= 3 then maybeSpawnAfterimage(char, 3) end; return end
+                end
+            end
+
+            if dashJumping then
+                local vy = root and root.AssemblyLinearVelocity.Y or 0
+                if inAir or vy > 1 or (tick() - dashJumpStartTime) < DASH_JUMP_GRACE then
+                    setTargetSpeed(hum, DASH_JUMP_FORWARD)
+                    local elapsed = tick() - dashJumpStartTime
+                    if Anim.DashJumpLoop and elapsed >= DashJumpLength then wantAnim(Anim.DashJumpLoop, true) elseif Anim.DashJump then wantAnim(Anim.DashJump, false) elseif Anim.DashJumpLoop then wantAnim(Anim.DashJumpLoop, true) end
+                    if lastRunPhase >= 3 then maybeSpawnAfterimage(char, 3) end; return
+                else dashJumping = false; jumpStarted = false end
+            end
+
+            if inAir and running and Anim.AirRun and md.Magnitude > 0.1 then 
+                setTargetSpeed(hum, AIR_RUN_SPEED)
+                wantAnim(Anim.AirRun, true)
+                if lastRunPhase >= 3 then maybeSpawnAfterimage(char, 3) end
+                return 
+            end
+            if superjumpFalling then
+                if inAir then setTargetSpeed(hum, FALL_MOVE_SPEED); wantAnim(Anim.Fall or Anim.Idle, true); return
+                else superjumpFalling = false; jumpStarted = false end
+            end
+
+            if inAir then
+                if cancelActive then cancelActive = false end
+                local vy = root and root.AssemblyLinearVelocity.Y or 0
+                if lastRunPhase >= 3 then maybeSpawnAfterimage(char, 3) end
+                if vy > 1 then if not jumpStarted then jumpStarted = true; if Anim.Jump then jumpLockedUntil = tick() + JumpLength; wantAnim(Anim.Jump, false, true) end end
+                else wantAnim(Anim.Fall or Anim.Idle, true) end
+                return
+            end
+
+            if airRunActive then airRunActive = false end
+            jumpStarted = false
+
+            if cancelActive then
+                setMach34Particles(false); setMach4Particles(false)
+                local cancelDur = getCancelDuration(cancelPhaseAtStart)
+                local elapsed = tick() - cancelStartTime
+                local t = math.clamp(elapsed / cancelDur, 0, 1)
+                if t >= 1 then
+                    cancelActive = false
+                    if running then
+                        if cancelPhaseAtStart >= 3 then runStartTime = tick() - (RUN1_LENGTH + RUN2_LENGTH + 0.001); lastRunPhase = 3
+                        elseif cancelPhaseAtStart == 2 then runStartTime = tick() - (RUN1_LENGTH + 0.001); lastRunPhase = 2
+                        else runStartTime = tick() - 0.001; lastRunPhase = 1 end
+                        mach2StartDir = (hum.MoveDirection.Magnitude > 0.1) and hum.MoveDirection or nil
+                    else lastRunPhase = 0; mach2StartDir = nil end
+                    resetAfterimageState()
+                else
+                    local speed = getSkidSpeed(elapsed, cancelStartSpeed, cancelPhaseAtStart)
+                    setTargetSpeed(hum, speed)
+                    if Anim.RunCancel then wantAnim(Anim.RunCancel, true, false, CANCEL_ANIM_SPEED) end
+                    if elapsed > 0.05 then maybeSpawnAfterimage(char, 3, SKID_AFTERIMAGE_THROTTLE) end
+                    return
+                end
+            end
+
+            if running then
+                local elapsed = tick() - runStartTime
+                local mach2End = RUN1_LENGTH + RUN2_LENGTH
+                local mach3End = mach2End + RUN3_LENGTH
+                local thisPhase
+                if elapsed < RUN1_LENGTH then thisPhase = 1 elseif elapsed < mach2End then thisPhase = 2 elseif elapsed < mach3End then thisPhase = 3 else thisPhase = 4 end
+
+                local restrictParticles = cancelActive or superjumpCharging or dashActive or machRolling or machSliding or airRunActive or wallClimbActive or splatActive or inAir or bellySliding
+
+                if thisPhase == 4 and not restrictParticles then setMach4Particles(true) else setMach4Particles(false) end
+                if (thisPhase == 3 or thisPhase == 4) and not restrictParticles then setMach34Particles(true) else setMach34Particles(false) end
+
+                if thisPhase ~= lastRunPhase and thisPhase >= 2 and md.Magnitude > 0.1 then mach2StartDir = md end
+                if thisPhase >= 2 and mach2StartDir == nil and md.Magnitude > 0.1 then mach2StartDir = md end
+
+                if thisPhase >= 2 and lastRunPhase == thisPhase then
+                    local turned = false
+                    if priorMD.Magnitude > 0.1 and md.Magnitude > 0.1 then if md.Unit:Dot(priorMD.Unit) < TURN_DOT_THRESHOLD then turned = true end end
+                    if not turned and mach2StartDir and mach2StartDir.Magnitude > 0.1 and md.Magnitude > 0.1 then if md.Unit:Dot(mach2StartDir.Unit) < TURN_DOT_THRESHOLD then turned = true end end
+                    if turned then
+                        cancelActive = true; cancelStartTime = tick(); cancelStartSpeed = currentTargetSpeed; cancelPhaseAtStart = thisPhase
+                        cancelDir = priorMD.Magnitude > 0.1 and priorMD.Unit or (mach2StartDir and mach2StartDir.Unit) or root.CFrame.LookVector
+                        setMach34Particles(false); setMach4Particles(false); if Anim.RunCancel then wantAnim(Anim.RunCancel, true, true, CANCEL_ANIM_SPEED) end; 
+                        
+                        if sounds.RUNCANCEL then
+                            sounds.RUNCANCEL:Stop()
+                            sounds.RUNCANCEL.TimePosition = 0
+                            sounds.RUNCANCEL:Play()
+                        end
+                        
+                        return
+                    end
+                end
+
+                local thisSpeed
+                if thisPhase == 1 then thisSpeed = RUN1_SPEED; if Anim.Run1 then wantAnim(Anim.Run1, true) elseif Anim.Walk then wantAnim(Anim.Walk, true) else wantAnim(Anim.Idle, true) end
+                elseif thisPhase == 2 then thisSpeed = RUN2_SPEED; if Anim.Run2 then wantAnim(Anim.Run2, true) elseif Anim.Walk then wantAnim(Anim.Walk, true) else wantAnim(Anim.Idle, true) end
+                elseif thisPhase == 3 then thisSpeed = RUN3_SPEED; if Anim.Run2 then wantAnim(Anim.Run2, true) elseif Anim.Walk then wantAnim(Anim.Walk, true) else wantAnim(Anim.Idle, true) end
+                else thisSpeed = RUN4_SPEED; if Anim.Run3 then wantAnim(Anim.Run3, true) elseif Anim.Run2 then wantAnim(Anim.Run2, true) elseif Anim.Walk then wantAnim(Anim.Walk, true) else wantAnim(Anim.Idle, true) end end
+
+                setTargetSpeed(hum, thisSpeed); maybeSpawnAfterimage(char, thisPhase); lastRunPhase = thisPhase; return
+            end
+
+            lastRunPhase = 0; mach2StartDir = nil; setMach4Particles(false); setMach34Particles(false)
+            if tick() < jumpLockedUntil and currentAnim == Anim.Jump then return end
+            setTargetSpeed(hum, WALK_SPEED)
+            if md.Magnitude > 0.1 and Anim.Walk then wantAnim(Anim.Walk, true) else wantAnim(Anim.Idle, true) end
+        end)
+    end)
+
+    -- Sound Loop
+    RunService.RenderStepped:Connect(function()
+        pcall(function()
+            if not Anim.Idle then return end
+            local char = Player.Character; if not char or not char.Parent then return end
+            local hum = char:FindFirstChildOfClass("Humanoid"); local root = char:FindFirstChild("HumanoidRootPart"); if not hum or not root then return end
+
+            local md = hum.MoveDirection; local activeLoop = nil
+            local isInAir = (hum.FloorMaterial == Enum.Material.Air) or (hum:GetState() == Enum.HumanoidStateType.Jumping) or (hum:GetState() == Enum.HumanoidStateType.Freefall)
+            
+            if superjumpCharging then
+                if sounds.JUMP_CHARGE and not sounds.JUMP_CHARGE.IsPlaying then sounds.JUMP_CHARGE:Play() end
+                activeLoop = nil 
+            else
+                if sounds.JUMP_CHARGE and sounds.JUMP_CHARGE.IsPlaying then sounds.JUMP_CHARGE:Stop() end
+                
+                if superJumpPlaying or superjumpFalling then
+                    activeLoop = nil
+                elseif cancelActive then 
+                    activeLoop = nil
+                elseif bellySliding then
+                    activeLoop = nil
+                elseif machRolling or machSliding then
+                    activeLoop = nil
+                elseif wallClimbActive then
+                    activeLoop = sounds.MACH3
+                elseif running and not isInAir then
+                    if lastRunPhase == 4 then activeLoop = sounds.MACH4 
+                    elseif lastRunPhase == 3 then activeLoop = sounds.MACH3 
+                    elseif lastRunPhase >= 1 then activeLoop = sounds.MACH12 end
+                elseif md.Magnitude > 0.1 and not isInAir and not crawling and not slamming and not slamLandingActive and not bashActive and not bashLooping and not dashActive and not dashJumping and not splatActive and not ceilingHitActive and not wallJumpOverride then
+                    activeLoop = sounds.WALK
+                end
+            end
+
+            for name, s in pairs(sounds) do
+                if s.Looped and name ~= "EMOTE_LOOP" and name ~= "JUMP_CHARGE" then
+                    if s == activeLoop then 
+                        if not s.IsPlaying then s:Play() end 
+                    else 
+                        if s.IsPlaying then s:Stop() end 
+                    end
+                end
+            end
+
+            if jumpStarted and not prevJumpStarted and not superJumpPlaying and not superjumpCharging and sounds.JUMP then 
+                sounds.JUMP.TimePosition = 0; 
+                sounds.JUMP:Play() 
+            end
+            prevJumpStarted = jumpStarted
+        end)
+    end)
+
+    -- Random Idles
+    task.spawn(function()
+        while true do
+            task.wait(30)
+            pcall(function()
+                if not Anim.Idle then return end
+                local char = Player.Character
+                if char and char == boundChar and char.Parent then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health > 0 then
+                        if hum.MoveDirection.Magnitude < 0.1 and not running and not slamming and not crawling and not machRolling and not machSliding and not dashActive and not dashJumping and not bashActive and not bashLooping and not tauntOverride and not emoteOverride and not wallClimbActive and not ceilingHitActive and not splatActive and not bellySliding then
+                            if not anyHurtPlaying() then
+                                if math.random() < 0.5 then local s = idleSounds[math.random(1, #idleSounds)]; s.TimePosition = 0; s:Play() end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+
+    -- Bind Character
+    local function stripAnimateOnce(c) if not c then return end; for _, ch in ipairs(c:GetChildren()) do if ch.Name == "Animate" then pcall(function() ch:Destroy() end) end end end
+    local function stripAnimateForever(c) if not c then return end; stripAnimateOnce(c); c.ChildAdded:Connect(function(ch) if ch.Name == "Animate" then pcall(function() ch:Destroy() end) end end) end
+    local function killDefaultTracks(hum) if not hum then return end; local animator = hum:FindFirstChildOfClass("Animator"); if not animator then return end; local ok, tracks = pcall(function() return animator:GetPlayingAnimationTracks() end); if not ok or not tracks then return end; for _, track in ipairs(tracks) do pcall(function() track:Stop(0) end) end end
+
+    local function onCharacter(c)
+        if not c or c == boundChar or respawnProcessing then return end
+        if not Anim.Idle then return end
+        
+        boundChar = c; respawnProcessing = true; bindingGen = bindingGen + 1; local myGen = bindingGen
+        if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+        stripAnimateForever(c); applyPlayerCollisionGroup(c)
+
+        task.spawn(function()
+            local ok, err = pcall(function()
+                local hum = c:WaitForChild("Humanoid", 10); if not hum then error("no Humanoid") end
+                if bindingGen ~= myGen then return end
+                local root = c:WaitForChild("HumanoidRootPart", 5); if bindingGen ~= myGen then return end
+                if root then root.Anchored = false end
+
+                hum.BreakJointsOnDeath = false
+                
+                local defaultDeathSound = hum:FindFirstChild("Died")
+                if defaultDeathSound then defaultDeathSound:Destroy() end
+
+                for _, s in pairs(sounds) do s:Stop(); s.Parent = root end
+                for _, s in ipairs(idleSounds) do s.Parent = root end
+                for _, s in ipairs(hurtSounds) do s.Parent = root end
+                for _, s in ipairs(deathSounds) do s.Parent = game:GetService("SoundService") end
+
+                local oldHealth = hum.Health
+                hum.HealthChanged:Connect(function(newHealth) 
+                    if newHealth < oldHealth and newHealth > 0 then 
+                        for _, s in ipairs(idleSounds) do s:Stop() end
+                        local s = hurtSounds[math.random(1, #hurtSounds)]; 
+                        s.TimePosition = 0; s:Play() 
+                    end
+                    oldHealth = newHealth 
+                end)
+                
+                hum.Died:Connect(function() 
+                    local s = deathSounds[math.random(1, #deathSounds)]; 
+                    s.TimePosition = 0; s:Play() 
+                    
+                    if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                    
+                    local ragdollJoints = {
+                        ["RootJoint"] = true, ["Waist"] = true, ["Neck"] = true,
+                        ["LeftHip"] = true, ["RightHip"] = true,
+                        ["LeftShoulder"] = true, ["RightShoulder"] = true,
+                    }
+
+                    for _, v in pairs(c:GetDescendants()) do
+                        if v:IsA("Motor6D") and ragdollJoints[v.Name] then
+                            if v.Part0 and v.Part1 then
+                                local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+                                a0.CFrame = v.C0; a1.CFrame = v.C1
+                                a0.Parent = v.Part0; a1.Parent = v.Part1
+                                local b = Instance.new("BallSocketConstraint")
+                                b.Attachment0 = a0; b.Attachment1 = a1
+                                b.LimitsEnabled = true; b.TwistLimitsEnabled = true
+                                b.Parent = v.Part0
+                                v:Destroy()
+                            end
+                        end
+                    end
+                    hum:ChangeState(Enum.HumanoidStateType.Physics)
+                end)
+
+                task.wait(0.15); killDefaultTracks(hum); stripAnimateOnce(c)
+                if firstBindDone then 
+                    if getgenv().Animator6DStop then pcall(getgenv().Animator6DStop) end
+                    getgenv().Animator6DLoadedPro = nil; getgenv().Animator6D = nil; getgenv().Animator6DStop = nil
+                    task.wait(0.3); loadAnimator6D()
+                else firstBindDone = true end
+                if bindingGen ~= myGen then return end
+
+                desiredState, currentAnim, lastAppliedId = nil, nil, 0
+                jumpStarted, jumpLockedUntil = false, 0
+                cancelActive, cancelStartTime, cancelStartSpeed = false, 0, 0
+                lastMoveDir, mach2StartDir = Vector3.zero, nil
+                lastRunPhase, running, runStarting = 0, false, false
+                tauntOverride, emoteOverride, splatOverride, splatActive = false, false, false, false
+                tauntSavedRunElapsed, tauntSavedDashElapsed = nil, nil
+                wallJumpOverride, wallClimbCooldown, ceilingHitActive = false, 0, false
+                superjumpCharging, superJumpPlaying, superjumpFalling = false, false, false
+                dashActive, dashIsMidAir, dashJumping, slideComboReady = false, false, false, false
+                bellySliding, bellySlideStartTime, bellySlideDir = false, 0, Vector3.zero
+                airRunActive, slamming, slamFreezeActive, slamLandingActive = false, false, false, false
+                crawling, wallClimbActive, slamHold, holdingJump = false, false, false, false
+                machRolling, machSliding, machRollSpeed = false, false, 0
+                machRollEndTime, machRollResumePhase, machRollStartTime = 0, 2, 0
+                slideEndTime = 0
+                rollGraceUntil, slideGraceUntil = 0, 0
+                bashActive, bashLooping, bashDir = false, false, Vector3.zero
+                resetAfterimageState()
+                mach4Particles, mach4Attachment, mach34Particles, mach34Attachment = nil, nil, nil, nil
+                currentFOV, targetFOV = 70, 70
+                isHitboxLowered = false; hum.HipHeight = savedHipHeight
+                hum.PlatformStand = false
+                currentTargetSpeed = WALK_SPEED
+                bindSpeedGuard(hum); setTargetSpeed(hum, WALK_SPEED)
+
+                task.wait(0.6)
+                if bindingGen ~= myGen then return end
+                stripAnimateOnce(c); killDefaultTracks(hum); setTargetSpeed(hum, WALK_SPEED)
+                if hum.Parent and hum.Health > 0 and Anim.Idle then wantAnim(Anim.Idle, true, true) end
+            end)
+            if not ok then warn("[Peppino] Bind error:", err) end
+            if bindingGen == myGen then respawnProcessing = false end
+        end)
+    end
+
+    _G.PeppinoReset = function() boundChar = nil; respawnProcessing = false; local c = Player.Character; if c then onCharacter(c) else loadAnimator6D() end end
+    
+    getgenv().PeppinoCharConn = Player.CharacterAdded:Connect(onCharacter)
+    local initialChar = Player.Character or Player.CharacterAdded:Wait()
+    onCharacter(initialChar)
+
+    warn("[Peppino] Loaded successfully.")
+end)
